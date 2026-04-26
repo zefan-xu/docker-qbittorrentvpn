@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - modernize-2026
+
+permissions:
+  contents: read
+
+jobs:
+  runner-capability:
+    name: runner-capability
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Docker and TUN support
+        run: |
+          set -euxo pipefail
+          docker version
+          docker buildx version
+          if [ ! -c /dev/net/tun ]; then
+            sudo mkdir -p /dev/net
+            sudo mknod /dev/net/tun c 10 200 || true
+            sudo chmod 666 /dev/net/tun
+          fi
+          test -c /dev/net/tun
+          docker run --rm --cap-add NET_ADMIN --device /dev/net/tun ubuntu:26.04 bash -c \
+            'apt-get update && apt-get install -y --no-install-recommends iproute2 >/dev/null && ip tuntap add dev testtun mode tun && ip link show testtun'
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: Dockerfile
+      - name: ShellCheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck yamllint
+          mapfile -t shell_files < <(find root tests -type f \( -name '*.sh' -o -name run -o -name finish -o -name 'qbtvpn-*' \) | sort)
+          shellcheck -s bash -e SC1091 -e SC2034 -e SC2154 "${shell_files[@]}"
+          mapfile -t s6_up_files < <(find root/etc/s6-overlay/s6-rc.d -type f -name up | sort)
+          for file in "${s6_up_files[@]}"; do
+            read -r first_line < "$file"
+            test "$first_line" = '#!/command/execlineb -P'
+          done
+          yamllint .github/workflows docker-compose.yml
+      - name: actionlint
+        run: |
+          set -euo pipefail
+          go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          "$HOME/go/bin/actionlint"
+
+  compose-syntax:
+    name: compose-syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker compose -f docker-compose.yml config -q
+
+  build-amd64-image:
+    name: build-amd64-image
+    runs-on: ubuntu-latest
+    needs:
+      - runner-capability
+      - lint
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - name: Build amd64 image
+        run: docker buildx build --platform linux/amd64 --load -t qbtvpn:ci .
+      - name: Export image artifact
+        run: docker save qbtvpn:ci | gzip > qbtvpn-ci.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qbtvpn-amd64-image
+          path: qbtvpn-ci.tar.gz
+          retention-days: 2
+
+  build-arm64:
+    name: build-arm64
+    runs-on: ubuntu-latest
+    needs:
+      - runner-capability
+      - lint
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Build arm64 image
+        run: docker buildx build --platform linux/arm64 -t qbtvpn:ci-arm64 .
+
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    needs: build-amd64-image
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: qbtvpn-amd64-image
+      - name: Load image
+        run: gunzip -c qbtvpn-ci.tar.gz | docker load
+      - name: Run smoke test
+        run: bash tests/smoke/run.sh
+
+  integration:
+    name: integration-${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    needs: build-amd64-image
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - vpn-disabled-basic
+          - uid-gid-umask
+          - first-run-config
+          - existing-config-preserved
+          - enable-ssl-on
+          - enable-ssl-off
+          - openvpn-udp-basic
+          - openvpn-tcp-basic
+          - openvpn-credentials
+          - openvpn-options
+          - wireguard-basic
+          - wireguard-wrong-filename
+          - missing-vpn-config
+          - invalid-vpn-type
+          - missing-lan-network
+          - invalid-lan-network
+          - multiple-lan-networks
+          - additional-ports
+          - name-servers
+          - kill-switch-openvpn
+          - kill-switch-wireguard
+          - ipv6-blocked
+          - healthcheck-restart-yes
+          - healthcheck-restart-no
+          - torrent-port-exposed
+          - graceful-stop
+          - compose-example
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: qbtvpn-amd64-image
+      - name: Load image
+        run: gunzip -c qbtvpn-ci.tar.gz | docker load
+      - name: Run integration scenario
+        env:
+          ARTIFACT_DIR: tests/integration/tmp/artifacts-${{ matrix.scenario }}
+        run: bash tests/integration/run.sh "${{ matrix.scenario }}"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: integration-${{ matrix.scenario }}-artifacts
+          path: tests/integration/tmp/artifacts-${{ matrix.scenario }}
+          if-no-files-found: ignore

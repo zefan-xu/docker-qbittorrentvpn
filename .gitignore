@@ -1,0 +1,12 @@
+.DS_Store
+config/
+downloads/
+tmp/
+tests/integration/tmp/
+tests/integration/ovpn-data/
+tests/integration/wg-data/
+tests/integration/client*.ovpn
+*.auth
+credentials.conf
+*.log
+qbtvpn-ci.tar.gz

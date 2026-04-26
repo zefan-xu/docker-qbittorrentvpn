@@ -1,0 +1,29 @@
+#!/command/with-contenv bash
+set -euo pipefail
+exec 2>&1
+
+# shellcheck source=/dev/null
+source /usr/local/bin/qbtvpn-common
+
+host=${HEALTH_CHECK_HOST:-one.one.one.one}
+interval=${HEALTH_CHECK_INTERVAL:-300}
+amount=${HEALTH_CHECK_AMOUNT:-1}
+silent=$(normalize_bool HEALTH_CHECK_SILENT "${HEALTH_CHECK_SILENT:-1}")
+restart=$(normalize_bool RESTART_CONTAINER "${RESTART_CONTAINER:-yes}")
+
+[[ "$interval" =~ ^[0-9]+$ && "$interval" -gt 0 ]] || die "HEALTH_CHECK_INTERVAL must be a positive integer"
+[[ "$amount" =~ ^[0-9]+$ && "$amount" -gt 0 ]] || die "HEALTH_CHECK_AMOUNT must be a positive integer"
+
+while true; do
+  if ping -c "$amount" "$host" >/dev/null 2>&1; then
+    [[ "$silent" == yes ]] || log INFO "Network is up"
+  else
+    log ERROR "Network health check failed for ${host}"
+    if [[ "$restart" == yes ]]; then
+      log INFO "Halting container so the runtime restart policy can restart it"
+      /run/s6/basedir/bin/halt
+    fi
+  fi
+  sleep "$interval" &
+  wait $!
+done

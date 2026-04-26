@@ -1,0 +1,36 @@
+#!/command/with-contenv bash
+set -euo pipefail
+exec 2>&1
+
+# shellcheck source=/dev/null
+source /usr/local/bin/qbtvpn-common
+load_state
+
+if [[ "$VPN_ENABLED_NORM" == no ]]; then
+  log INFO "VPN disabled; keeping svc-vpn idle"
+  exec sleep infinity
+fi
+
+if [[ "$VPN_TYPE_NORM" == openvpn ]]; then
+  cd "$VPN_CONFIG_DIR"
+  log INFO "Starting OpenVPN"
+  # shellcheck disable=SC2086
+  exec openvpn \
+    --pull-filter ignore route-ipv6 \
+    --pull-filter ignore ifconfig-ipv6 \
+    --config "$VPN_CONFIG" \
+    ${VPN_OPTIONS:-}
+fi
+
+cleanup_wireguard() {
+  wg-quick down "$VPN_CONFIG" >/dev/null 2>&1 || true
+}
+
+log INFO "Starting WireGuard"
+trap cleanup_wireguard EXIT INT TERM
+wg-quick down "$VPN_CONFIG" >/dev/null 2>&1 || true
+wg-quick up "$VPN_CONFIG"
+
+while sleep 5; do
+  ip link show "$VPN_DEVICE" >/dev/null 2>&1 || die "WireGuard interface ${VPN_DEVICE} disappeared"
+done
