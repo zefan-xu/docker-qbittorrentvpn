@@ -33,7 +33,6 @@ RUN set -eux; \
       qbittorrent-nox \
       openvpn \
       wireguard-tools \
-      openresolv \
       iptables \
       iproute2 \
       ipcalc-ng \

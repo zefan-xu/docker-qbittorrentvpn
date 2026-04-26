@@ -95,6 +95,9 @@ else
   VPN_CONFIG=$(find /config/wireguard -maxdepth 1 -type f -name '*.conf' -print -quit)
   [[ -n "$VPN_CONFIG" ]] || die "No WireGuard .conf file found in /config/wireguard"
   [[ "$VPN_CONFIG" == /config/wireguard/wg0.conf ]] || die "WireGuard config must be named /config/wireguard/wg0.conf"
+  runtime_config=/run/qbtvpn/wg0.conf
+  awk 'tolower($1) != "dns" { print }' "$VPN_CONFIG" > "$runtime_config"
+  chmod 600 "$runtime_config"
   endpoint_line=$(grep -E '^[[:space:]]*Endpoint[[:space:]]*=' "$VPN_CONFIG" | head -n 1 || true)
   [[ -n "$endpoint_line" ]] || die "WireGuard config must contain an Endpoint"
   endpoint=${endpoint_line#*=}
@@ -107,7 +110,7 @@ else
   VPN_PROTOCOL=udp
   VPN_DEVICE=wg0
 
-  write_state_var VPN_CONFIG "$VPN_CONFIG"
+  write_state_var VPN_CONFIG "$runtime_config"
   write_state_var VPN_CONFIG_DIR /config/wireguard
 fi
 

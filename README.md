@@ -55,6 +55,7 @@ services:
 ```
 
 Put one OpenVPN `.ovpn` file in `./config/openvpn/`, or put a WireGuard config at `./config/wireguard/wg0.conf`.
+WireGuard `DNS =` lines are ignored; use `NAME_SERVERS` instead.
 
 ## WebUI Login
 

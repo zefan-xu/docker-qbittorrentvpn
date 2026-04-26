@@ -527,7 +527,7 @@ test_kill_switch_wireguard() {
     -v "${client_dir}:/config" -v "${downloads_dir}:/downloads" "$IMAGE" >/dev/null
   retry 90 1 docker exec "$name" timeout 20 curl -fsS http://1.1.1.1 >/dev/null
   docker rm -f wg-server >/dev/null
-  docker exec "$name" wg-quick down /config/wireguard/wg0.conf || true
+  docker exec "$name" wg-quick down /run/qbtvpn/wg0.conf || true
   sleep 5
   if docker exec "$name" timeout 5 curl -fsS http://1.1.1.1 >/dev/null 2>&1; then
     fail "clear-net egress succeeded after WireGuard was brought down"
