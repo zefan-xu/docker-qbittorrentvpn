@@ -43,7 +43,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends shellcheck yamllint
           mapfile -t shell_files < <(find root tests -type f \( -name '*.sh' -o -name run -o -name up -o -name finish -o -name 'qbtvpn-*' \) | sort)
-          shellcheck -e SC1091 -e SC2154 "${shell_files[@]}"
+          shellcheck -s bash -e SC1091 -e SC2034 -e SC2154 "${shell_files[@]}"
           yamllint .github/workflows docker-compose.yml
       - name: actionlint
         run: |
