@@ -48,7 +48,7 @@ test_uid_gid_umask() {
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
   cookie=$(mktemp)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' RETURN
   cleanup_container "$name"
   docker run -d --name "$name" \
     -e VPN_ENABLED=no \
@@ -71,7 +71,7 @@ test_first_run_config() {
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
   cookie=$(mktemp)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' RETURN
   run_basic_container "$name" 18082 "$config_dir" "$downloads_dir" -e ENABLE_SSL=no
   wait_for_qbt "$name" 18082 http "$cookie"
   grep -Fq 'Session\Port=8999' "${config_dir}/qBittorrent/config/qBittorrent.conf"
@@ -88,7 +88,7 @@ test_existing_config_preserved() {
   conf="${config_dir}/qBittorrent/config/qBittorrent.conf"
   mkdir -p "$(dirname "$conf")"
   printf '[Preferences]\nCustom\\Sentinel=true\nWebUI\\Port=8080\n' > "$conf"
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' RETURN
   run_basic_container "$name" 18083 "$config_dir" "$downloads_dir" -e ENABLE_SSL=no
   wait_for_qbt "$name" 18083 http "$cookie"
   grep -Fq 'Custom\Sentinel=true' "$conf"
@@ -100,7 +100,7 @@ test_enable_ssl_on() {
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
   cookie=$(mktemp)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' RETURN
   run_basic_container "$name" 18084 "$config_dir" "$downloads_dir" -e ENABLE_SSL=yes
   wait_for_qbt "$name" 18084 https "$cookie"
   test -f "${config_dir}/qBittorrent/config/WebUICertificate.crt"
@@ -114,7 +114,7 @@ test_enable_ssl_off() {
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
   cookie=$(mktemp)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' RETURN
   run_basic_container "$name" 18085 "$config_dir" "$downloads_dir" -e ENABLE_SSL=no
   wait_for_qbt "$name" 18085 http "$cookie"
   ! grep -Fq 'WebUI\HTTPS\Enabled=true' "${config_dir}/qBittorrent/config/qBittorrent.conf"
@@ -183,7 +183,7 @@ run_openvpn_case() {
   client_dir="${base_dir}/client"
   downloads_dir="${base_dir}/downloads"
   cookie=$(mktemp)
-  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$base_dir" "$cookie"' RETURN
+  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; cleanup_paths "$base_dir" "$cookie"' RETURN
 
   start_openvpn_fixture "$proto" "$net" "$server_dir" "$client_dir"
   subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$net")
@@ -243,7 +243,7 @@ test_openvpn_options() {
   server_dir="${base_dir}/server"
   client_dir="${base_dir}/client"
   downloads_dir="${base_dir}/downloads"
-  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$base_dir"' RETURN
+  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; cleanup_paths "$base_dir"' RETURN
   start_openvpn_fixture udp "$net" "$server_dir" "$client_dir"
   subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$net")
   docker run -d --name "$name" --network "$net" \
@@ -308,7 +308,7 @@ test_wireguard_basic() {
   client_dir="${base_dir}/client"
   downloads_dir="${base_dir}/downloads"
   cookie=$(mktemp)
-  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" wg-server; cleanup_container "$name" wg-server; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$base_dir" "$cookie"' RETURN
+  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" wg-server; cleanup_container "$name" wg-server; docker network rm "$net" >/dev/null 2>&1 || true; cleanup_paths "$base_dir" "$cookie"' RETURN
   start_wireguard_fixture "$net" "$server_dir" "$client_dir"
   subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$net")
   docker run -d --name "$name" --network "$net" \
@@ -335,7 +335,7 @@ test_wireguard_wrong_filename() {
   downloads_dir=$(mktemp -d)
   mkdir -p "${config_dir}/wireguard"
   printf '[Interface]\nPrivateKey = x\n' > "${config_dir}/wireguard/not-wg0.conf"
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir"' RETURN
   cleanup_container "$name"
   docker run -d --name "$name" \
     --cap-add NET_ADMIN --device /dev/net/tun \
@@ -358,7 +358,7 @@ validation_case() {
   local config_dir downloads_dir
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir"' RETURN
   cleanup_container "$name"
   docker run -d --name "$name" \
     --cap-add NET_ADMIN --device /dev/net/tun \
@@ -388,7 +388,7 @@ test_missing_lan_network() {
   downloads_dir=$(mktemp -d)
   mkdir -p "${config_dir}/openvpn"
   printf 'remote vpn.example 1194 udp\ndev tun\n' > "${config_dir}/openvpn/client.ovpn"
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir"' RETURN
   cleanup_container "$name"
   docker run -d --name "$name" \
     --cap-add NET_ADMIN --device /dev/net/tun \
@@ -407,7 +407,7 @@ test_invalid_lan_network() {
   downloads_dir=$(mktemp -d)
   mkdir -p "${config_dir}/openvpn"
   printf 'remote vpn.example 1194 udp\ndev tun\n' > "${config_dir}/openvpn/client.ovpn"
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir"' RETURN
   cleanup_container "$name"
   docker run -d --name "$name" \
     --cap-add NET_ADMIN --device /dev/net/tun \
@@ -428,7 +428,7 @@ test_multiple_lan_networks() {
   server_dir="${base_dir}/server"
   client_dir="${base_dir}/client"
   downloads_dir="${base_dir}/downloads"
-  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$base_dir"' RETURN
+  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; cleanup_paths "$base_dir"' RETURN
   start_openvpn_fixture udp "$net" "$server_dir" "$client_dir"
   subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$net")
   docker run -d --name "$name" --network "$net" \
@@ -452,7 +452,7 @@ test_additional_ports() {
   server_dir="${base_dir}/server"
   client_dir="${base_dir}/client"
   downloads_dir="${base_dir}/downloads"
-  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$base_dir"' RETURN
+  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; cleanup_paths "$base_dir"' RETURN
   start_openvpn_fixture udp "$net" "$server_dir" "$client_dir"
   subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$net")
   docker run -d --name "$name" --network "$net" \
@@ -474,7 +474,7 @@ test_name_servers() {
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
   cookie=$(mktemp)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' RETURN
   run_basic_container "$name" 18088 "$config_dir" "$downloads_dir" -e ENABLE_SSL=no -e NAME_SERVERS=9.9.9.9,1.1.1.1
   wait_for_qbt "$name" 18088 http "$cookie"
   docker exec "$name" grep -Fq 'nameserver 9.9.9.9' /etc/resolv.conf
@@ -489,7 +489,7 @@ test_kill_switch_openvpn() {
   server_dir="${base_dir}/server"
   client_dir="${base_dir}/client"
   downloads_dir="${base_dir}/downloads"
-  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$base_dir"' RETURN
+  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; cleanup_paths "$base_dir"' RETURN
   start_openvpn_fixture udp "$net" "$server_dir" "$client_dir"
   subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$net")
   docker run -d --name "$name" --network "$net" \
@@ -519,7 +519,7 @@ test_kill_switch_wireguard() {
   server_dir="${base_dir}/server"
   client_dir="${base_dir}/client"
   downloads_dir="${base_dir}/downloads"
-  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" wg-server; cleanup_container "$name" wg-server; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$base_dir"' RETURN
+  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" wg-server; cleanup_container "$name" wg-server; docker network rm "$net" >/dev/null 2>&1 || true; cleanup_paths "$base_dir"' RETURN
   start_wireguard_fixture "$net" "$server_dir" "$client_dir"
   subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$net")
   docker run -d --name "$name" --network "$net" \
@@ -548,7 +548,7 @@ test_ipv6_blocked() {
   server_dir="${base_dir}/server"
   client_dir="${base_dir}/client"
   downloads_dir="${base_dir}/downloads"
-  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; rm -rf "$base_dir"' RETURN
+  trap 'collect_container_logs "$ARTIFACT_DIR" "$name" vpn-server; cleanup_container "$name" vpn-server; docker network rm "$net" >/dev/null 2>&1 || true; cleanup_paths "$base_dir"' RETURN
   start_openvpn_fixture udp "$net" "$server_dir" "$client_dir"
   subnet=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' "$net")
   docker run -d --name "$name" --network "$net" \
@@ -568,7 +568,7 @@ test_healthcheck_restart_yes() {
   local config_dir downloads_dir
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir"' RETURN
   cleanup_container "$name"
   docker run -d --name "$name" \
     -e VPN_ENABLED=no \
@@ -588,7 +588,7 @@ test_healthcheck_restart_no() {
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
   cookie=$(mktemp)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' RETURN
   docker run -d --name "$name" \
     -e VPN_ENABLED=no \
     -e ENABLE_SSL=no \
@@ -609,7 +609,7 @@ test_torrent_port_exposed() {
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
   cookie=$(mktemp)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' RETURN
   docker run -d --name "$name" \
     -e VPN_ENABLED=no \
     -e ENABLE_SSL=no \
@@ -628,7 +628,7 @@ test_graceful_stop() {
   config_dir=$(mktemp -d)
   downloads_dir=$(mktemp -d)
   cookie=$(mktemp)
-  trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' RETURN
+  trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' RETURN
   run_basic_container "$name" 18091 "$config_dir" "$downloads_dir" -e ENABLE_SSL=no
   wait_for_qbt "$name" 18091 http "$cookie"
   docker stop -t 20 "$name" >/dev/null

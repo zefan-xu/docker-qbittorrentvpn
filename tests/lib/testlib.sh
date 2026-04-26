@@ -41,6 +41,21 @@ cleanup_container() {
   docker rm -f "$@" >/dev/null 2>&1 || true
 }
 
+cleanup_paths() {
+  local path
+  for path in "$@"; do
+    [[ -n "${path:-}" ]] || continue
+    [[ -e "$path" || -L "$path" ]] || continue
+    if ! rm -rf "$path" 2>/dev/null; then
+      if command -v sudo >/dev/null 2>&1; then
+        sudo rm -rf "$path"
+      else
+        rm -rf "$path"
+      fi
+    fi
+  done
+}
+
 collect_container_logs() {
   local out_dir=$1
   shift

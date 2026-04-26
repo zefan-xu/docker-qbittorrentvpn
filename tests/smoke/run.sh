@@ -9,7 +9,7 @@ host_port=18080
 config_dir=$(mktemp -d)
 downloads_dir=$(mktemp -d)
 cookie=$(mktemp)
-trap 'cleanup_container "$name"; rm -rf "$config_dir" "$downloads_dir" "$cookie"' EXIT
+trap 'cleanup_container "$name"; cleanup_paths "$config_dir" "$downloads_dir" "$cookie"' EXIT
 
 cleanup_container "$name"
 
