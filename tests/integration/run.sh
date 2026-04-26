@@ -57,6 +57,44 @@ run_basic_container() {
     "$IMAGE" >/dev/null
 }
 
+command_output_contains() {
+  local needle=$1
+  shift
+  local output
+  output=$("$@")
+  grep -Fq -- "$needle" <<< "$output"
+}
+
+assert_command_output_contains() {
+  local needle=$1
+  shift
+  if ! command_output_contains "$needle" "$@"; then
+    fail "Expected command output to contain '${needle}'"
+  fi
+}
+
+assert_iptables_policy_drop() {
+  local name=$1
+  local tool=$2
+  local chain=$3
+  local rules first
+  rules=$(docker exec "$name" "$tool" -S "$chain")
+  first=${rules%%$'\n'*}
+  [[ "$first" == "-P ${chain} DROP" ]] || fail "${tool} ${chain} policy is not DROP: ${first}"
+}
+
+container_route_contains() {
+  local name=$1
+  local route=$2
+  command_output_contains "$route" docker exec "$name" ip route
+}
+
+container_iptables_input_contains() {
+  local name=$1
+  local rule=$2
+  command_output_contains "$rule" docker exec "$name" iptables -S INPUT
+}
+
 test_vpn_disabled_basic() {
   bash "${ROOT_DIR}/tests/smoke/run.sh"
 }
@@ -206,6 +244,7 @@ run_openvpn_case() {
   local net="qbtvpn-ovpn-${proto}-${RANDOM}"
   local name="qbtvpn-ovpn-${proto}-${extra_name}"
   local base_dir server_dir client_dir downloads_dir cookie subnet
+  local -a credential_env=()
   base_dir=$(mktemp -d)
   server_dir="${base_dir}/server"
   client_dir="${base_dir}/client"
@@ -221,6 +260,7 @@ run_openvpn_case() {
 
   if [[ "$extra_name" == credentials ]]; then
     printf 'auth-user-pass\n' >> "${client_dir}/openvpn/client.ovpn"
+    credential_env=(-e VPN_USERNAME=user1 -e VPN_PASSWORD=pass1 -e VPN_WAIT_TIMEOUT=15)
   fi
 
   cleanup_container "$name"
@@ -234,23 +274,24 @@ run_openvpn_case() {
     -e HEALTH_CHECK_INTERVAL=10 \
     -e HEALTH_CHECK_AMOUNT=1 \
     -e RESTART_CONTAINER=no \
-    -e VPN_USERNAME=user1 \
-    -e VPN_PASSWORD=pass1 \
+    "${credential_env[@]}" \
     -p 18086:8080 \
     -v "${client_dir}:/config" \
     -v "${downloads_dir}:/downloads" \
     "$IMAGE" >/dev/null
 
-  wait_for_qbt "$name" 18086 http "$cookie"
-  docker exec "$name" ip -4 addr show tun0 | grep -q 'inet '
-  docker exec "$name" iptables -S OUTPUT | head -n 1 | grep -q '^-P OUTPUT DROP'
-  docker exec "$name" ip6tables -S OUTPUT | head -n 1 | grep -q '^-P OUTPUT DROP'
-  docker exec "$name" timeout 20 curl -fsS http://1.1.1.1 >/dev/null
-
   if [[ "$extra_name" == credentials ]]; then
-    docker exec "$name" test -f /run/qbtvpn/openvpn-credentials.conf
+    retry 30 1 docker exec "$name" test -f /run/qbtvpn/openvpn-credentials.conf
+    docker exec "$name" sh -c 'test "$(sed -n 1p /run/qbtvpn/openvpn-credentials.conf)" = user1 && test "$(sed -n 2p /run/qbtvpn/openvpn-credentials.conf)" = pass1'
     docker exec "$name" grep -Fq 'auth-user-pass /run/qbtvpn/openvpn-credentials.conf' /run/qbtvpn/client.ovpn
+    return
   fi
+
+  wait_for_qbt "$name" 18086 http "$cookie"
+  assert_command_output_contains 'inet ' docker exec "$name" ip -4 addr show tun0
+  assert_iptables_policy_drop "$name" iptables OUTPUT
+  assert_iptables_policy_drop "$name" ip6tables OUTPUT
+  docker exec "$name" timeout 20 curl -fsS http://1.1.1.1 >/dev/null
 }
 
 test_openvpn_udp_basic() {
@@ -292,7 +333,7 @@ test_openvpn_options() {
     -v "${downloads_dir}:/downloads" \
     "$IMAGE" >/dev/null
   retry 60 1 docker exec "$name" pgrep openvpn >/dev/null
-  docker exec "$name" sh -c 'tr "\0" " " < /proc/$(pgrep openvpn)/cmdline' | grep -Fq -- '--ping 10'
+  assert_command_output_contains '--ping 10' docker exec "$name" sh -c 'tr "\0" " " < /proc/$(pgrep openvpn)/cmdline'
 }
 
 start_wireguard_fixture() {
@@ -361,7 +402,7 @@ test_wireguard_basic() {
     -v "${downloads_dir}:/downloads" \
     "$IMAGE" >/dev/null
   wait_for_qbt "$name" 18087 http "$cookie"
-  docker exec "$name" ip -4 addr show wg0 | grep -q 'inet '
+  assert_command_output_contains 'inet ' docker exec "$name" ip -4 addr show wg0
   docker exec "$name" timeout 20 curl -fsS http://1.1.1.1 >/dev/null
 }
 
@@ -485,8 +526,8 @@ test_multiple_lan_networks() {
     -e ENABLE_SSL=no \
     -v "${client_dir}:/config" -v "${downloads_dir}:/downloads" "$IMAGE" >/dev/null
   retry 90 1 docker exec "$name" ip -4 addr show tun0 >/dev/null
-  docker exec "$name" ip route | grep -Fq '192.168.50.0/24'
-  docker exec "$name" ip route | grep -Fq '10.10.0.0/16'
+  retry 90 1 container_route_contains "$name" '192.168.50.0/24'
+  retry 90 1 container_route_contains "$name" '10.10.0.0/16'
 }
 
 test_additional_ports() {
@@ -512,9 +553,8 @@ test_additional_ports() {
     -e ADDITIONAL_PORTS=8112,9696 \
     -e ENABLE_SSL=no \
     -v "${client_dir}:/config" -v "${downloads_dir}:/downloads" "$IMAGE" >/dev/null
-  retry 90 1 docker exec "$name" iptables -S INPUT >/tmp/qbtvpn-iptables
-  docker exec "$name" iptables -S INPUT | grep -Fq -- '--dport 8112'
-  docker exec "$name" iptables -S INPUT | grep -Fq -- '--dport 9696'
+  retry 90 1 container_iptables_input_contains "$name" '--dport 8112'
+  container_iptables_input_contains "$name" '--dport 9696'
 }
 
 test_name_servers() {
@@ -560,7 +600,7 @@ test_kill_switch_openvpn() {
   if docker exec "$name" timeout 5 curl -fsS http://1.1.1.1 >/dev/null 2>&1; then
     fail "clear-net egress succeeded after OpenVPN was killed"
   fi
-  docker exec "$name" iptables -S OUTPUT | head -n 1 | grep -q '^-P OUTPUT DROP'
+  assert_iptables_policy_drop "$name" iptables OUTPUT
 }
 
 test_kill_switch_wireguard() {
@@ -617,8 +657,7 @@ test_ipv6_blocked() {
     -e LAN_NETWORK="$subnet" \
     -e ENABLE_SSL=no \
     -v "${client_dir}:/config" -v "${downloads_dir}:/downloads" "$IMAGE" >/dev/null
-  retry 90 1 docker exec "$name" ip6tables -S OUTPUT >/dev/null
-  docker exec "$name" ip6tables -S OUTPUT | head -n 1 | grep -q '^-P OUTPUT DROP'
+  retry 90 1 assert_iptables_policy_drop "$name" ip6tables OUTPUT
   ! docker exec "$name" timeout 5 curl -g -6 -fsS 'http://[2606:4700:4700::1111]' >/dev/null 2>&1
 }
 
