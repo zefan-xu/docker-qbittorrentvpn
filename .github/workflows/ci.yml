@@ -49,6 +49,7 @@ jobs:
             read -r first_line < "$file"
             test "$first_line" = '#!/command/execlineb -P'
           done
+          bash tests/lint/no-shallow-assertions.sh
           yamllint .github/workflows docker-compose.yml
       - name: actionlint
         run: |
@@ -96,9 +97,17 @@ jobs:
         run: docker buildx build --platform linux/arm64 -t qbtvpn:ci-arm64 .
 
   smoke:
-    name: smoke
+    name: smoke-${{ matrix.scenario }}
     runs-on: ubuntu-latest
     needs: build-amd64-image
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - smoke-http-vpn-disabled
+          - smoke-https-default
+          - smoke-uid-gid-umask
+          - smoke-config-persistence
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v4
@@ -107,7 +116,15 @@ jobs:
       - name: Load image
         run: gunzip -c qbtvpn-ci.tar.gz | docker load
       - name: Run smoke test
-        run: bash tests/smoke/run.sh
+        env:
+          ARTIFACT_DIR: tests/smoke/tmp/artifacts-${{ matrix.scenario }}
+        run: bash tests/smoke/run.sh "${{ matrix.scenario }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.scenario }}-artifacts
+          path: tests/smoke/tmp/artifacts-${{ matrix.scenario }}
+          if-no-files-found: ignore
 
   integration:
     name: integration-${{ matrix.scenario }}
@@ -117,32 +134,26 @@ jobs:
       fail-fast: false
       matrix:
         scenario:
-          - vpn-disabled-basic
-          - uid-gid-umask
-          - first-run-config
-          - existing-config-preserved
-          - enable-ssl-on
-          - enable-ssl-off
-          - openvpn-udp-basic
-          - openvpn-tcp-basic
-          - openvpn-credentials
-          - openvpn-options
-          - wireguard-basic
-          - wireguard-wrong-filename
-          - missing-vpn-config
-          - invalid-vpn-type
-          - missing-lan-network
-          - invalid-lan-network
-          - multiple-lan-networks
-          - additional-ports
-          - name-servers
+          - openvpn-udp-full
+          - openvpn-tcp-full
+          - openvpn-auth-success
+          - openvpn-auth-failure
+          - openvpn-options-full
+          - wireguard-full
           - kill-switch-openvpn
           - kill-switch-wireguard
+          - dns-through-vpn-no-leak
+          - torrent-download-through-vpn
+          - torrent-real-peer-download
+          - torrent-resume-after-container-restart
+          - torrent-multiple-download-savepaths
+          - torrent-outage-and-recovery
+          - firewall-lan-webui-additional-ports
+          - multi-lan-routes
           - ipv6-blocked
           - healthcheck-restart-yes
           - healthcheck-restart-no
-          - torrent-port-exposed
-          - graceful-stop
+          - validation-failures
           - compose-example
     steps:
       - uses: actions/checkout@v6
@@ -156,7 +167,7 @@ jobs:
           ARTIFACT_DIR: tests/integration/tmp/artifacts-${{ matrix.scenario }}
         run: bash tests/integration/run.sh "${{ matrix.scenario }}"
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: integration-${{ matrix.scenario }}-artifacts
           path: tests/integration/tmp/artifacts-${{ matrix.scenario }}

@@ -10,3 +10,5 @@ tests/integration/client*.ovpn
 credentials.conf
 *.log
 qbtvpn-ci.tar.gz
+__pycache__/
+*.pyc
