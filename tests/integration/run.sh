@@ -170,6 +170,7 @@ dev tun
 ifconfig 10.8.0.1 10.8.0.2
 secret /server/static.key
 allow-deprecated-insecure-static-crypto
+cipher AES-256-CBC
 proto ${server_proto}
 port 1194
 keepalive 10 60
@@ -181,6 +182,7 @@ dev tun
 ifconfig 10.8.0.2 10.8.0.1
 secret static.key
 allow-deprecated-insecure-static-crypto
+cipher AES-256-CBC
 remote vpn-server 1194 ${client_proto}
 proto ${client_proto}
 redirect-gateway def1
