@@ -333,7 +333,7 @@ test_openvpn_options() {
     -v "${downloads_dir}:/downloads" \
     "$IMAGE" >/dev/null
   retry 60 1 docker exec "$name" pgrep openvpn >/dev/null
-  assert_command_output_contains '--ping 10' docker exec "$name" sh -c 'tr "\0" " " < /proc/$(pgrep openvpn)/cmdline'
+  assert_command_output_contains '--ping 10' docker exec "$name" sh -c "xargs -0 printf '%s ' < /proc/\$(pgrep openvpn)/cmdline"
 }
 
 start_wireguard_fixture() {
