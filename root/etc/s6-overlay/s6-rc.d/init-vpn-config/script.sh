@@ -7,6 +7,60 @@ source /usr/local/bin/qbtvpn-common
 mkdir -p "$STATE_DIR"
 : > "$STATE_FILE"
 
+configure_name_servers() {
+  local name_servers=${NAME_SERVERS:-1.1.1.1,8.8.8.8,1.0.0.1,8.8.4.4}
+  local -a name_server_items
+  mapfile -t name_server_items < <(split_csv "$name_servers")
+  [[ ${#name_server_items[@]} -gt 0 ]] || die "NAME_SERVERS must contain at least one IPv4 resolver"
+  : > /etc/resolv.conf
+  local ns
+  for ns in "${name_server_items[@]}"; do
+    is_ipv4 "$ns" || die "NAME_SERVERS only supports IPv4 resolvers, got '${ns}'"
+    printf 'nameserver %s\n' "$ns" >> /etc/resolv.conf
+  done
+  write_state_var NAME_SERVERS_LIST "${name_server_items[*]}"
+}
+
+resolve_remote_ipv4() {
+  local remote=$1
+  if is_ipv4 "$remote"; then
+    printf '%s\n' "$remote"
+    return 0
+  fi
+  getent ahostsv4 "$remote" | awk '{print $1}' | sort -u | xargs
+}
+
+rewrite_openvpn_remote() {
+  local config=$1
+  local remote_addr=$2
+  local tmp
+  tmp=$(mktemp)
+  awk -v remote_addr="$remote_addr" '
+    /^[[:space:]]*remote[[:space:]]+/ && !done {
+      $2 = remote_addr
+      done = 1
+    }
+    { print }
+  ' "$config" > "$tmp"
+  mv "$tmp" "$config"
+}
+
+rewrite_wireguard_endpoint() {
+  local config=$1
+  local remote_addr=$2
+  local remote_port=$3
+  local tmp
+  tmp=$(mktemp)
+  awk -v remote_addr="$remote_addr" -v remote_port="$remote_port" '
+    /^[[:space:]]*Endpoint[[:space:]]*=/ && !done {
+      sub(/=.*/, "= " remote_addr ":" remote_port)
+      done = 1
+    }
+    { print }
+  ' "$config" > "$tmp"
+  mv "$tmp" "$config"
+}
+
 detect_docker_network
 
 VPN_ENABLED_NORM=$(normalize_bool VPN_ENABLED "${VPN_ENABLED:-yes}")
@@ -19,17 +73,8 @@ write_state_var DOCKER_IFACE "$DOCKER_IFACE"
 write_state_var DOCKER_GATEWAY "$DOCKER_GATEWAY"
 write_state_var DOCKER_CIDR "$DOCKER_CIDR"
 
-NAME_SERVERS=${NAME_SERVERS:-1.1.1.1,8.8.8.8,1.0.0.1,8.8.4.4}
-mapfile -t NAME_SERVER_ITEMS < <(split_csv "$NAME_SERVERS")
-[[ ${#NAME_SERVER_ITEMS[@]} -gt 0 ]] || die "NAME_SERVERS must contain at least one IPv4 resolver"
-: > /etc/resolv.conf
-for ns in "${NAME_SERVER_ITEMS[@]}"; do
-  is_ipv4 "$ns" || die "NAME_SERVERS only supports IPv4 resolvers, got '${ns}'"
-  printf 'nameserver %s\n' "$ns" >> /etc/resolv.conf
-done
-write_state_var NAME_SERVERS_LIST "${NAME_SERVER_ITEMS[*]}"
-
 if [[ "$VPN_ENABLED_NORM" == no ]]; then
+  configure_name_servers
   log WARNING "VPN is disabled; qBittorrent traffic will not be protected"
   exit 0
 fi
@@ -114,17 +159,23 @@ else
   write_state_var VPN_CONFIG_DIR /config/wireguard
 fi
 
-if is_ipv4 "$VPN_REMOTE"; then
-  VPN_REMOTE_ADDRS=$VPN_REMOTE
-else
-  VPN_REMOTE_ADDRS=$(getent ahostsv4 "$VPN_REMOTE" | awk '{print $1}' | sort -u | xargs)
-fi
+VPN_REMOTE_ADDRS=$(resolve_remote_ipv4 "$VPN_REMOTE" || true)
 [[ -n "$VPN_REMOTE_ADDRS" ]] || die "Unable to resolve VPN remote '${VPN_REMOTE}' to an IPv4 address"
+VPN_REMOTE_ADDR=${VPN_REMOTE_ADDRS%% *}
+
+if [[ "$VPN_TYPE_NORM" == openvpn ]]; then
+  rewrite_openvpn_remote "$runtime_config" "$VPN_REMOTE_ADDR"
+else
+  rewrite_wireguard_endpoint "$runtime_config" "$VPN_REMOTE_ADDR" "$VPN_PORT"
+fi
+
+configure_name_servers
 
 write_state_var VPN_REMOTE "$VPN_REMOTE"
 write_state_var VPN_REMOTE_ADDRS "$VPN_REMOTE_ADDRS"
+write_state_var VPN_REMOTE_ADDR "$VPN_REMOTE_ADDR"
 write_state_var VPN_PORT "$VPN_PORT"
 write_state_var VPN_PROTOCOL "$VPN_PROTOCOL"
 write_state_var VPN_DEVICE "$VPN_DEVICE"
 
-log INFO "VPN config OK: type=${VPN_TYPE_NORM}, remote=${VPN_REMOTE}:${VPN_PORT}/${VPN_PROTOCOL}, device=${VPN_DEVICE}"
+log INFO "VPN config OK: type=${VPN_TYPE_NORM}, remote=${VPN_REMOTE} (${VPN_REMOTE_ADDR}:${VPN_PORT}/${VPN_PROTOCOL}), device=${VPN_DEVICE}"
