@@ -59,6 +59,7 @@ split_csv() {
     item=$(trim "$item")
     [[ -n "$item" ]] && out+=("$item")
   done
+  [[ ${#out[@]} -gt 0 ]] || return 0
   printf '%s\n' "${out[@]}"
 }
 

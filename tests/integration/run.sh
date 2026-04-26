@@ -169,6 +169,7 @@ start_openvpn_fixture() {
 dev tun
 ifconfig 10.8.0.1 10.8.0.2
 secret /server/static.key
+allow-deprecated-insecure-static-crypto
 proto ${server_proto}
 port 1194
 keepalive 10 60
@@ -179,6 +180,7 @@ EOF
 dev tun
 ifconfig 10.8.0.2 10.8.0.1
 secret static.key
+allow-deprecated-insecure-static-crypto
 remote vpn-server 1194 ${client_proto}
 proto ${client_proto}
 redirect-gateway def1
@@ -423,6 +425,7 @@ test_missing_lan_network() {
   downloads_dir=$(mktemp -d)
   mkdir -p "${config_dir}/openvpn"
   printf 'remote vpn.example 1194 udp\ndev tun\n' > "${config_dir}/openvpn/client.ovpn"
+  LOG_CONTAINERS+=("$name")
   CLEANUP_CONTAINERS+=("$name")
   CLEANUP_PATHS+=("$config_dir" "$downloads_dir")
   cleanup_container "$name"
@@ -443,6 +446,7 @@ test_invalid_lan_network() {
   downloads_dir=$(mktemp -d)
   mkdir -p "${config_dir}/openvpn"
   printf 'remote vpn.example 1194 udp\ndev tun\n' > "${config_dir}/openvpn/client.ovpn"
+  LOG_CONTAINERS+=("$name")
   CLEANUP_CONTAINERS+=("$name")
   CLEANUP_PATHS+=("$config_dir" "$downloads_dir")
   cleanup_container "$name"
