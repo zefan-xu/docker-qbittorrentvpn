@@ -49,8 +49,8 @@ RUN set -eux; \
       zip \
       unrar-free; \
     rm -rf /var/lib/apt/lists/*; \
-    groupadd -g 1000 abc; \
-    useradd -u 1000 -g abc -d /config -s /usr/sbin/nologin abc; \
+    groupadd -r abc; \
+    useradd -r -g abc -d /config -s /usr/sbin/nologin abc; \
     mkdir -p /config /downloads /run/qbtvpn
 
 WORKDIR /tmp
