@@ -42,8 +42,13 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends shellcheck yamllint
-          mapfile -t shell_files < <(find root tests -type f \( -name '*.sh' -o -name run -o -name up -o -name finish -o -name 'qbtvpn-*' \) | sort)
+          mapfile -t shell_files < <(find root tests -type f \( -name '*.sh' -o -name run -o -name finish -o -name 'qbtvpn-*' \) | sort)
           shellcheck -s bash -e SC1091 -e SC2034 -e SC2154 "${shell_files[@]}"
+          mapfile -t s6_up_files < <(find root/etc/s6-overlay/s6-rc.d -type f -name up | sort)
+          for file in "${s6_up_files[@]}"; do
+            read -r first_line < "$file"
+            test "$first_line" = '#!/command/execlineb -P'
+          done
           yamllint .github/workflows docker-compose.yml
       - name: actionlint
         run: |

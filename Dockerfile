@@ -78,7 +78,7 @@ WORKDIR /
 COPY root/ /
 
 RUN set -eux; \
-    find /etc/s6-overlay/s6-rc.d -type f \( -name up -o -name run -o -name finish \) -exec chmod +x {} \;; \
+    find /etc/s6-overlay/s6-rc.d -type f \( -name up -o -name run -o -name finish -o -name '*.sh' \) -exec chmod +x {} \;; \
     chmod +x /usr/local/bin/qbtvpn-*; \
     mkdir -p /config /downloads /run/qbtvpn
 
