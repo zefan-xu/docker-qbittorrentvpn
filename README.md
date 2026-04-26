@@ -114,6 +114,8 @@ The WebUI port inside the container is fixed at `8080`. Remap the host port with
 
 This project assumes local Docker may be unavailable. Docker-dependent validation runs in GitHub Actions.
 
+Keep working until this release gate is true: CI is green on the exact commit being merged or tagged, the torrent jobs prove completed downloads with checksums, the VPN jobs prove egress source IPs are the VPN endpoint, kill-switch jobs prove blocked egress after tunnel loss, and the release workflow has a passing registry smoke test for the image tag it published.
+
 CI covers:
 
 - Docker runner capability for `/dev/net/tun` and `NET_ADMIN`
@@ -133,7 +135,16 @@ CI covers:
 - OpenVPN and WireGuard kill-switch behavior
 - IPv6 fail-closed behavior
 - health-check restart behavior
+- qBittorrent WebUI/API readiness
+- qBittorrent config persistence across restarts
 - torrent port exposure
+- WebSeed torrent download through the VPN with checksum verification
+- real peer-to-peer small `.torrent` download between two qBittorrent clients
+- tracker evidence that the peer-to-peer leecher announces through the VPN source IP
+- proof that the peer-to-peer torrent does not use the HTTP WebSeed endpoint
+- torrent resume after container restart
+- multiple torrent save paths
+- torrent outage and recovery behavior
 - graceful container stop
 - compose syntax
 
