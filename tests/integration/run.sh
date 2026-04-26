@@ -39,7 +39,7 @@ run_basic_container() {
 }
 
 test_vpn_disabled_basic() {
-  "${ROOT_DIR}/tests/smoke/run.sh"
+  bash "${ROOT_DIR}/tests/smoke/run.sh"
 }
 
 test_uid_gid_umask() {
@@ -127,6 +127,11 @@ start_openvpn_fixture() {
   local client_dir=$4
   mkdir -p "$server_dir" "${client_dir}/openvpn"
   docker run --rm --entrypoint openvpn -v "${server_dir}:/out" "$IMAGE" --genkey secret /out/static.key
+  if command -v sudo >/dev/null 2>&1; then
+    sudo chown -R "$(id -u):$(id -g)" "$server_dir"
+  else
+    chown -R "$(id -u):$(id -g)" "$server_dir"
+  fi
   cp "${server_dir}/static.key" "${client_dir}/openvpn/static.key"
 
   local server_proto=udp
