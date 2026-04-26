@@ -102,7 +102,7 @@ jobs:
       - name: Load image
         run: gunzip -c qbtvpn-ci.tar.gz | docker load
       - name: Run smoke test
-        run: tests/smoke/run.sh
+        run: bash tests/smoke/run.sh
 
   integration:
     name: integration-${{ matrix.scenario }}
@@ -149,7 +149,7 @@ jobs:
       - name: Run integration scenario
         env:
           ARTIFACT_DIR: tests/integration/tmp/artifacts-${{ matrix.scenario }}
-        run: tests/integration/run.sh "${{ matrix.scenario }}"
+        run: bash tests/integration/run.sh "${{ matrix.scenario }}"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
