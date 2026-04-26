@@ -54,6 +54,8 @@ RUN set -eux; \
     useradd -u 1000 -g abc -d /config -s /usr/sbin/nologin abc; \
     mkdir -p /config /downloads /run/qbtvpn
 
+WORKDIR /tmp
+
 RUN set -eux; \
     case "${TARGETARCH}" in \
       amd64) S6_ARCH=x86_64 ;; \
@@ -66,12 +68,13 @@ RUN set -eux; \
       curl -fsSLo "/tmp/s6-overlay-${asset}.tar.xz.sha256" \
         "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${asset}.tar.xz.sha256"; \
     done; \
-    cd /tmp; \
     sha256sum -c s6-overlay-noarch.tar.xz.sha256; \
     sha256sum -c "s6-overlay-${S6_ARCH}.tar.xz.sha256"; \
     tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz; \
     tar -C / -Jxpf "/tmp/s6-overlay-${S6_ARCH}.tar.xz"; \
     rm -f /tmp/s6-overlay-*.tar.xz /tmp/s6-overlay-*.tar.xz.sha256
+
+WORKDIR /
 
 COPY root/ /
 
