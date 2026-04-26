@@ -73,14 +73,23 @@ assert_command_output_contains() {
   fi
 }
 
-assert_iptables_policy_drop() {
+iptables_policy_drop() {
   local name=$1
   local tool=$2
   local chain=$3
   local rules first
-  rules=$(docker exec "$name" "$tool" -S "$chain")
+  rules=$(docker exec "$name" "$tool" -S "$chain" 2>/dev/null) || return 1
   first=${rules%%$'\n'*}
-  [[ "$first" == "-P ${chain} DROP" ]] || fail "${tool} ${chain} policy is not DROP: ${first}"
+  [[ "$first" == "-P ${chain} DROP" ]]
+}
+
+assert_iptables_policy_drop() {
+  local name=$1
+  local tool=$2
+  local chain=$3
+  if ! iptables_policy_drop "$name" "$tool" "$chain"; then
+    fail "${tool} ${chain} policy is not DROP"
+  fi
 }
 
 container_route_contains() {
@@ -657,7 +666,8 @@ test_ipv6_blocked() {
     -e LAN_NETWORK="$subnet" \
     -e ENABLE_SSL=no \
     -v "${client_dir}:/config" -v "${downloads_dir}:/downloads" "$IMAGE" >/dev/null
-  retry 90 1 assert_iptables_policy_drop "$name" ip6tables OUTPUT
+  retry 90 1 iptables_policy_drop "$name" ip6tables OUTPUT
+  assert_iptables_policy_drop "$name" ip6tables OUTPUT
   ! docker exec "$name" timeout 5 curl -g -6 -fsS 'http://[2606:4700:4700::1111]' >/dev/null 2>&1
 }
 
