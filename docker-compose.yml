@@ -1,0 +1,28 @@
+services:
+  qbittorrentvpn:
+    image: ghcr.io/zefan-xu/docker-qbittorrentvpn:latest
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
+    environment:
+      VPN_ENABLED: "yes"
+      VPN_TYPE: openvpn
+      VPN_USERNAME: ""
+      VPN_PASSWORD: ""
+      LAN_NETWORK: 192.168.1.0/24
+      NAME_SERVERS: 1.1.1.1,8.8.8.8
+      ENABLE_SSL: "yes"
+      PUID: "1000"
+      PGID: "1000"
+      UMASK: "002"
+    volumes:
+      - ./config:/config
+      - ./downloads:/downloads
+    ports:
+      - 8080:8080
+      - 8999:8999
+      - 8999:8999/udp
+    restart: unless-stopped

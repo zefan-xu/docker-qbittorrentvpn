@@ -1,0 +1,13 @@
+#!/command/with-contenv bash
+set -euo pipefail
+exec 2>&1
+
+# shellcheck source=/dev/null
+source /usr/local/bin/qbtvpn-common
+
+umask "${UMASK:-002}"
+log INFO "Starting qBittorrent"
+exec s6-setuidgid abc qbittorrent-nox \
+  --confirm-legal-notice \
+  --webui-port="$QBT_WEBUI_PORT" \
+  --profile=/config

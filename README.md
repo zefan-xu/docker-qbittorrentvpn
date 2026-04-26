@@ -1,136 +1,148 @@
-# [qBittorrent](https://github.com/qbittorrent/qBittorrent), WireGuard and OpenVPN
-[![Docker Pulls](https://img.shields.io/docker/pulls/dyonr/qbittorrentvpn)](https://hub.docker.com/r/dyonr/qbittorrentvpn)
-[![Docker Image Size (tag)](https://img.shields.io/docker/image-size/dyonr/qbittorrentvpn/latest)](https://hub.docker.com/r/dyonr/qbittorrentvpn)
+# qBittorrent + OpenVPN/WireGuard
 
-Docker container which runs the latest [qBittorrent](https://github.com/qbittorrent/qBittorrent)-nox client while connecting to WireGuard or OpenVPN with iptables killswitch to prevent IP leakage when the tunnel goes down.
+Modern qBittorrent VPN container with a fail-closed firewall, OpenVPN or WireGuard, s6-overlay supervision, and multi-arch GHCR images.
 
-[preview]: https://raw.githubusercontent.com/DyonR/docker-templates/master/Screenshots/qbittorrentvpn/qbittorrentvpn-webui.png "qBittorrent WebUI"
-![alt text][preview]
+This repository is forked from [DyonR/docker-qbittorrentvpn](https://github.com/DyonR/docker-qbittorrentvpn), which originated from MarkusMcNugen/docker-qBittorrentvpn. The project remains licensed under GPL-3.0.
 
-# Docker Features
-* Base: Debian bullseye-slim
-* [qBittorrent](https://github.com/qbittorrent/qBittorrent) compiled from source
-* [libtorrent](https://github.com/arvidn/libtorrent) compiled from source
-* Compiled with the latest version of [Boost](https://www.boost.org/)
-* Compiled with the latest versions of [CMake](https://cmake.org/)
-* Selectively enable or disable WireGuard or OpenVPN support
-* IP tables killswitch to prevent IP leaking when VPN connection fails
-* Configurable UID and GID for config files and /downloads for qBittorrent
-* Created with [Unraid](https://unraid.net/) in mind
-* BitTorrent port 8999 exposed by default
+## Image
 
-## Run container from Docker registry
-The container is available from the Docker registry and this is the simplest way to get it  
-To run the container use this command, with additional parameters, please refer to the Variables, Volumes, and Ports section:
-
-```
-$ docker run  -d \
-              -v /your/config/path/:/config \
-              -v /your/downloads/path/:/downloads \
-              -e "VPN_ENABLED=yes" \
-              -e "VPN_TYPE=wireguard" \
-              -e "LAN_NETWORK=192.168.0.0/24" \
-              -p 8080:8080 \
-              --cap-add NET_ADMIN \
-              --sysctl "net.ipv4.conf.all.src_valid_mark=1" \
-              --restart unless-stopped \
-              dyonr/qbittorrentvpn
+```sh
+docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:latest
 ```
 
-## Docker Tags
-| Tag | Description |
-|----------|----------|
-| `dyonr/qbittorrentvpn:latest` | The latest version of qBittorrent with libtorrent 1_x_x |
-| `dyonr/qbittorrentvpn:rc_2_0` | The latest version of qBittorrent with libtorrent 2_x_x |
-| `dyonr/qbittorrentvpn:legacy_iptables` | The latest version of qBittorrent, libtorrent 1_x_x and an experimental feature to fix problems with QNAP NAS systems, [Issue #25](https://github.com/DyonR/docker-qbittorrentvpn/issues/25) |
-| `dyonr/qbittorrentvpn:alpha` | The latest alpha version of qBittorrent with libtorrent 2_0, incase you feel like testing new features |
-| `dyonr/qbittorrentvpn:dev` | This branch is used for testing new Docker features or improvements before merging it to the main branch |
-| `dyonr/qbittorrentvpn:v4_2_x` | (Legacy) qBittorrent version 4.2.x with libtorrent 1_x_x |
+Supported platforms:
 
-# Variables, Volumes, and Ports
-## Environment Variables
-| Variable | Required | Function | Example | Default |
-|----------|----------|----------|----------|----------|
-|`VPN_ENABLED`| Yes | Enable VPN (yes/no)?|`VPN_ENABLED=yes`|`yes`|
-|`VPN_TYPE`| Yes | WireGuard or OpenVPN (wireguard/openvpn)?|`VPN_TYPE=wireguard`|`openvpn`|
-|`VPN_USERNAME`| No | If username and password provided, configures ovpn file automatically |`VPN_USERNAME=ad8f64c02a2de`||
-|`VPN_PASSWORD`| No | If username and password provided, configures ovpn file automatically |`VPN_PASSWORD=ac98df79ed7fb`||
-|`LAN_NETWORK`| Yes (atleast one) | Comma delimited local Network's with CIDR notation |`LAN_NETWORK=192.168.0.0/24,10.10.0.0/24`||
-|`LEGACY_IPTABLES`| No | Use `iptables (legacy)` instead of `iptables (nf_tables)` |`LEGACY_IPTABLES=yes`||
-|`ENABLE_SSL`| No | Let the container handle SSL (yes/no)? |`ENABLE_SSL=yes`|`yes`|
-|`NAME_SERVERS`| No | Comma delimited name servers |`NAME_SERVERS=1.1.1.1,1.0.0.1`|`1.1.1.1,1.0.0.1`|
-|`PUID`| No | UID applied to /config files and /downloads |`PUID=99`|`99`|
-|`PGID`| No | GID applied to /config files and /downloads  |`PGID=100`|`100`|
-|`UMASK`| No | |`UMASK=002`|`002`|
-|`HEALTH_CHECK_HOST`| No |This is the host or IP that the healthcheck script will use to check an active connection|`HEALTH_CHECK_HOST=one.one.one.one`|`one.one.one.one`|
-|`HEALTH_CHECK_INTERVAL`| No |This is the time in seconds that the container waits to see if the internet connection still works (check if VPN died)|`HEALTH_CHECK_INTERVAL=300`|`300`|
-|`HEALTH_CHECK_SILENT`| No |Set to `1` to supress the 'Network is up' message. Defaults to `1` if unset.|`HEALTH_CHECK_SILENT=1`|`1`|
-|`HEALTH_CHECK_AMOUNT`| No |The amount of pings that get send when checking for connection.|`HEALTH_CHECK_AMOUNT=10`|`1`|
-|`RESTART_CONTAINER`| No |Set to `no` to **disable** the automatic restart when the network is possibly down.|`RESTART_CONTAINER=yes`|`yes`|
-|`INSTALL_PYTHON3`| No |Set this to `yes` to let the container install Python3.|`INSTALL_PYTHON3=yes`|`no`|
-|`ADDITIONAL_PORTS`| No |Adding a comma delimited list of ports will allow these ports via the iptables script.|`ADDITIONAL_PORTS=1234,8112`||
+- `linux/amd64`
+- `linux/arm64`
 
-## Volumes
-| Volume | Required | Function | Example |
-|----------|----------|----------|----------|
-| `config` | Yes | qBittorrent, WireGuard and OpenVPN config files | `/your/config/path/:/config`|
-| `downloads` | No | Default downloads path for saving downloads | `/your/downloads/path/:/downloads`|
+Runtime stack:
 
-## Ports
-| Port | Proto | Required | Function | Example |
-|----------|----------|----------|----------|----------|
-| `8080` | TCP | Yes | qBittorrent WebUI | `8080:8080`|
-| `8999` | TCP | Yes | qBittorrent TCP Listening Port | `8999:8999`|
-| `8999` | UDP | Yes | qBittorrent UDP Listening Port | `8999:8999/udp`|
+- Ubuntu 26.04 LTS
+- qBittorrent-nox from Ubuntu packages
+- OpenVPN and WireGuard from Ubuntu packages
+- s6-overlay v3
+- iptables-nft fail-closed kill switch
 
-# Access the WebUI
-Access https://IPADDRESS:PORT from a browser on the same network. (for example: https://192.168.0.90:8080)
+## Compose
 
-## Default Credentials
-
-| Credential | Default Value |
-|----------|----------|
-|`username`| `admin` |
-|`password`| `adminadmin` |
-
-# How to use WireGuard 
-The container will fail to boot if `VPN_ENABLED` is set and there is no valid .conf file present in the /config/wireguard directory. Drop a .conf file from your VPN provider into /config/wireguard and start the container again. The file must have the name `wg0.conf`, or it will fail to start.
-
-## WireGuard IPv6 issues
-If you use WireGuard and also have IPv6 enabled, it is necessary to add the IPv6 range to the `LAN_NETWORK` environment variable.  
-Additionally the parameter `--sysctl net.ipv6.conf.all.disable_ipv6=0` also must be added to the `docker run` command, or to the "Extra Parameters" in Unraid.  
-The full Unraid `Extra Parameters` would be: `--restart unless-stopped --sysctl net.ipv6.conf.all.disable_ipv6=0"`  
-If you do not do this, the container will keep on stopping with the error `RTNETLINK answers permission denied`.
-Since I do not have IPv6, I am did not test.
-Thanks to [mchangrh](https://github.com/mchangrh) / [Issue #49](https://github.com/DyonR/docker-qbittorrentvpn/issues/49)  
-
-# How to use OpenVPN
-The container will fail to boot if `VPN_ENABLED` is set and there is no valid .ovpn file present in the /config/openvpn directory. Drop a .ovpn file from your VPN provider into /config/openvpn (if necessary with additional files like certificates) and start the container again. You may need to edit the ovpn configuration file to load your VPN credentials from a file by setting `auth-user-pass`.
-
-**Note:** The script will use the first ovpn file it finds in the /config/openvpn directory. Adding multiple ovpn files will not start multiple VPN connections.
-
-## Example auth-user-pass option for .ovpn files
-`auth-user-pass credentials.conf`
-
-## Example credentials.conf
-```
-username
-password
+```yaml
+services:
+  qbittorrentvpn:
+    image: ghcr.io/zefan-xu/docker-qbittorrentvpn:latest
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
+    environment:
+      VPN_ENABLED: "yes"
+      VPN_TYPE: openvpn
+      LAN_NETWORK: 192.168.1.0/24
+      NAME_SERVERS: 1.1.1.1,8.8.8.8
+      ENABLE_SSL: "yes"
+      PUID: "1000"
+      PGID: "1000"
+      UMASK: "002"
+    volumes:
+      - ./config:/config
+      - ./downloads:/downloads
+    ports:
+      - 8080:8080
+      - 8999:8999
+      - 8999:8999/udp
+    restart: unless-stopped
 ```
 
-## PUID/PGID
-User ID (PUID) and Group ID (PGID) can be found by issuing the following command for the user you want to run the container as:
+Put one OpenVPN `.ovpn` file in `./config/openvpn/`, or put a WireGuard config at `./config/wireguard/wg0.conf`.
 
+## WebUI Login
+
+qBittorrent 5 no longer uses the old `admin/adminadmin` default. On first start, qBittorrent prints a temporary WebUI password in the container logs.
+
+```sh
+docker logs qbittorrentvpn
 ```
-id <username>
+
+The username is `admin` unless you change it in qBittorrent after first login.
+
+If `ENABLE_SSL=yes`, open `https://HOST:8080`. The container generates a self-signed certificate on first start. If `ENABLE_SSL=no`, open `http://HOST:8080`.
+
+## Environment
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `VPN_ENABLED` | `yes` | Enable VPN protection. Set `no` only for testing. |
+| `VPN_TYPE` | `openvpn` | `openvpn` or `wireguard`. |
+| `VPN_USERNAME` | empty | Optional OpenVPN username. Writes a runtime credentials file. |
+| `VPN_PASSWORD` | empty | Optional OpenVPN password. |
+| `VPN_OPTIONS` | empty | Extra OpenVPN CLI options. |
+| `LAN_NETWORK` | required with VPN | Comma-delimited IPv4 CIDRs allowed to reach the WebUI, for example `192.168.1.0/24,10.0.0.0/8`. |
+| `NAME_SERVERS` | `1.1.1.1,8.8.8.8,1.0.0.1,8.8.4.4` | IPv4 DNS resolvers written to `/etc/resolv.conf`. |
+| `ENABLE_SSL` | `yes` | Generate and enable a self-signed HTTPS certificate for qBittorrent WebUI. |
+| `PUID` | `1000` | UID for the `abc` user running qBittorrent. |
+| `PGID` | `1000` | GID for the `abc` group running qBittorrent. |
+| `UMASK` | `002` | Umask used by qBittorrent. |
+| `HEALTH_CHECK_HOST` | `one.one.one.one` | Ping target for VPN health checks. |
+| `HEALTH_CHECK_INTERVAL` | `300` | Seconds between health checks. |
+| `HEALTH_CHECK_SILENT` | `1` | Set `0`, `false`, or `no` to log successful checks. |
+| `HEALTH_CHECK_AMOUNT` | `1` | Ping count per health check. |
+| `RESTART_CONTAINER` | `yes` | Halt the container on health-check failure so the runtime restart policy can restart it. |
+| `ADDITIONAL_PORTS` | empty | Comma-delimited TCP ports allowed from LAN networks. |
+
+Removed variables:
+
+- `LEGACY_IPTABLES`: legacy iptables switching was removed. The image uses Ubuntu's nft-backed iptables.
+- `INSTALL_PYTHON3`: runtime Python installation was removed.
+
+IPv6 VPN routing is not supported in this modernization. The firewall drops IPv6 input/output by default when VPN protection is enabled.
+
+## Volumes And Ports
+
+| Path/Port | Purpose |
+| --- | --- |
+| `/config` | qBittorrent, OpenVPN, and WireGuard configuration. |
+| `/downloads` | qBittorrent download path. |
+| `8080/tcp` | qBittorrent WebUI. |
+| `8999/tcp` | qBittorrent listening port. |
+| `8999/udp` | qBittorrent listening port. |
+
+The WebUI port inside the container is fixed at `8080`. Remap the host port with Docker, for example `18080:8080`.
+
+## Testing
+
+This project assumes local Docker may be unavailable. Docker-dependent validation runs in GitHub Actions.
+
+CI covers:
+
+- Docker runner capability for `/dev/net/tun` and `NET_ADMIN`
+- Dockerfile, shell, YAML, and workflow linting
+- amd64 runtime build and arm64 build check
+- VPN-disabled startup
+- first-run and existing qBittorrent config behavior
+- UID/GID/umask behavior
+- HTTPS on/off behavior
+- OpenVPN UDP and TCP fixtures
+- OpenVPN credentials and option pass-through
+- WireGuard fixture
+- validation failures for bad VPN settings
+- multiple LAN networks
+- additional allowed ports
+- custom DNS resolvers
+- OpenVPN and WireGuard kill-switch behavior
+- IPv6 fail-closed behavior
+- health-check restart behavior
+- torrent port exposure
+- graceful container stop
+- compose syntax
+
+## Development Flow
+
+The release image is published only by GitHub Actions on tags matching `v*`.
+
+```sh
+git tag v5.1.4-1
+git push --tags
 ```
 
-# Issues
-If you are having issues with this container please submit an issue on GitHub.  
-Please provide logs, Docker version and other information that can simplify reproducing the issue.  
-If possible, always use the most up to date version of Docker, you operating system, kernel and the container itself. Support is always a best-effort basis.
-
-### Credits:
-[MarkusMcNugen/docker-qBittorrentvpn](https://github.com/MarkusMcNugen/docker-qBittorrentvpn)  
-[DyonR/jackettvpn](https://github.com/DyonR/jackettvpn)  
-This projects originates from MarkusMcNugen/docker-qBittorrentvpn, but forking was not possible since DyonR/jackettvpn uses the fork already.
+After the first GHCR publish, make the package public in GitHub's package settings if it is still private.

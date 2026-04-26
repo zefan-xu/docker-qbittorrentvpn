@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+conf=/config/qBittorrent/config/qBittorrent.conf
+scheme=http
+curl_opts=(-fsS)
+
+if [[ -f "$conf" ]] && grep -Fq 'WebUI\HTTPS\Enabled=true' "$conf"; then
+  scheme=https
+  curl_opts=(-fksS)
+fi
+
+curl "${curl_opts[@]}" "${scheme}://localhost:8080/" >/dev/null

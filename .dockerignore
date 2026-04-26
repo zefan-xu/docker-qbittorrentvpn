@@ -1,0 +1,13 @@
+.git
+.github
+tests
+*.md
+.DS_Store
+config
+downloads
+tmp
+*.log
+*.tar
+*.tar.gz
+*.auth
+credentials.conf

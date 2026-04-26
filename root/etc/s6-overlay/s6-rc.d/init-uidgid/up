@@ -1,0 +1,21 @@
+#!/command/with-contenv bash
+set -euo pipefail
+
+# shellcheck source=/dev/null
+source /usr/local/bin/qbtvpn-common
+
+PUID=${PUID:-1000}
+PGID=${PGID:-1000}
+UMASK=${UMASK:-002}
+
+[[ "$PUID" =~ ^[0-9]+$ ]] || die "PUID must be numeric, got '${PUID}'"
+[[ "$PGID" =~ ^[0-9]+$ ]] || die "PGID must be numeric, got '${PGID}'"
+[[ "$UMASK" =~ ^[0-7]{3,4}$ ]] || die "UMASK must be an octal mode, got '${UMASK}'"
+
+log INFO "Applying PUID=${PUID}, PGID=${PGID}, UMASK=${UMASK}"
+groupmod -o -g "$PGID" abc
+usermod -o -u "$PUID" -g "$PGID" abc
+
+mkdir -p /config /downloads /run/qbtvpn
+chown -R abc:abc /config /downloads /run/qbtvpn
+chmod 755 /config /downloads
