@@ -2,6 +2,9 @@ name: Release
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+      timezone: America/Los_Angeles
   push:
     tags:
       - v*
@@ -10,10 +13,43 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  classify:
+    name: classify
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      image_tag: ${{ steps.mode.outputs.image_tag }}
+      release_tag: ${{ steps.mode.outputs.release_tag }}
+      asset_suffix: ${{ steps.mode.outputs.asset_suffix }}
+    steps:
+      - id: mode
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            echo "mode=versioned" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${version}" >> "$GITHUB_OUTPUT"
+            echo "release_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "asset_suffix=${version}" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            echo "mode=rolling" >> "$GITHUB_OUTPUT"
+            echo "image_tag=latest" >> "$GITHUB_OUTPUT"
+            echo "release_tag=latest" >> "$GITHUB_OUTPUT"
+            echo "asset_suffix=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "Release workflow must run on main or a v* tag; got ${GITHUB_REF}" >&2
+            exit 1
+          fi
+
   preflight:
     name: preflight-full-test-suite
     runs-on: ubuntu-latest
+    needs: classify
     permissions:
       contents: read
     steps:
@@ -36,16 +72,16 @@ jobs:
         run: docker buildx build --platform linux/amd64 --load -t qbtvpn:ci .
       - name: Run all smoke tests
         env:
-          ARTIFACT_DIR: tests/smoke/tmp/artifacts-release-all
+          ARTIFACT_DIR: tests/smoke/tmp/artifacts-${{ needs.classify.outputs.mode }}-all
         run: bash tests/smoke/run.sh all
       - name: Run all integration tests
         env:
-          ARTIFACT_DIR: tests/integration/tmp/artifacts-release-all
+          ARTIFACT_DIR: tests/integration/tmp/artifacts-${{ needs.classify.outputs.mode }}-all
         run: bash tests/integration/run.sh all
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: release-preflight-artifacts
+          name: release-${{ needs.classify.outputs.mode }}-preflight-artifacts
           path: |
             tests/smoke/tmp/artifacts-*
             tests/integration/tmp/artifacts-*
@@ -54,7 +90,9 @@ jobs:
   publish:
     name: publish
     runs-on: ubuntu-latest
-    needs: preflight
+    needs:
+      - classify
+      - preflight
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-qemu-action@v4
@@ -69,7 +107,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/metadata-action@v6
-        id: meta
+        id: meta-versioned
+        if: needs.classify.outputs.mode == 'versioned'
         with:
           images: |
             ghcr.io/zefan-xu/docker-qbittorrentvpn
@@ -77,25 +116,50 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-,format=long
+          labels: |
+            org.opencontainers.image.source=https://github.com/zefan-xu/docker-qbittorrentvpn
+            org.opencontainers.image.licenses=GPL-3.0
+      - uses: docker/metadata-action@v6
+        id: meta-rolling
+        if: needs.classify.outputs.mode == 'rolling'
+        with:
+          images: |
+            ghcr.io/zefan-xu/docker-qbittorrentvpn
+            benjaminxzf/docker-qbittorrentvpn
+          tags: |
+            type=raw,value=latest
             type=sha,prefix=sha-,format=long
           labels: |
             org.opencontainers.image.source=https://github.com/zefan-xu/docker-qbittorrentvpn
             org.opencontainers.image.licenses=GPL-3.0
       - uses: docker/build-push-action@v7
+        if: needs.classify.outputs.mode == 'versioned'
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta-versioned.outputs.tags }}
+          labels: ${{ steps.meta-versioned.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: docker/build-push-action@v7
+        if: needs.classify.outputs.mode == 'rolling'
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-rolling.outputs.tags }}
+          labels: ${{ steps.meta-rolling.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   registry-smoke:
     name: registry-smoke
     runs-on: ubuntu-latest
-    needs: publish
+    needs:
+      - classify
+      - publish
     permissions:
       contents: read
       packages: read
@@ -114,27 +178,22 @@ jobs:
       - name: Verify published manifest platforms
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
-            image_tag="${GITHUB_REF_NAME#v}"
-          else
-            image_tag="sha-${GITHUB_SHA}"
-          fi
-          for image in \
-            "ghcr.io/zefan-xu/docker-qbittorrentvpn:${image_tag}" \
-            "benjaminxzf/docker-qbittorrentvpn:${image_tag}"; do
-            safe_name=$(printf '%s' "$image" | tr '/:.' '---')
-            docker buildx imagetools inspect "$image" | tee "manifest-${safe_name}.txt"
-            grep -F 'linux/amd64' "manifest-${safe_name}.txt"
-            grep -F 'linux/arm64' "manifest-${safe_name}.txt"
+          primary_tag="${{ needs.classify.outputs.image_tag }}"
+          sha_tag="sha-${GITHUB_SHA}"
+          for tag in "$primary_tag" "$sha_tag"; do
+            for image in \
+              "ghcr.io/zefan-xu/docker-qbittorrentvpn:${tag}" \
+              "benjaminxzf/docker-qbittorrentvpn:${tag}"; do
+              safe_name=$(printf '%s' "$image" | tr '/:.' '---')
+              docker buildx imagetools inspect "$image" | tee "manifest-${safe_name}.txt"
+              grep -F 'linux/amd64' "manifest-${safe_name}.txt"
+              grep -F 'linux/arm64' "manifest-${safe_name}.txt"
+            done
           done
       - name: Pull published image and run smoke
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
-            image_tag="${GITHUB_REF_NAME#v}"
-          else
-            image_tag="sha-${GITHUB_SHA}"
-          fi
+          image_tag="${{ needs.classify.outputs.image_tag }}"
           for image in \
             "ghcr.io/zefan-xu/docker-qbittorrentvpn:${image_tag}" \
             "benjaminxzf/docker-qbittorrentvpn:${image_tag}"; do
@@ -147,42 +206,63 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: registry-smoke-artifacts
+          name: release-${{ needs.classify.outputs.mode }}-registry-smoke-artifacts
           path: tests/smoke/tmp/artifacts-registry-smoke-*
           if-no-files-found: ignore
 
   github-release:
     name: github-release
     runs-on: ubuntu-latest
-    needs: registry-smoke
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - classify
+      - registry-smoke
     permissions:
       contents: write
       packages: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Install release tooling
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends skopeo zstd
-      - name: Export image and write release notes
+      - name: Move latest tag
+        if: needs.classify.outputs.mode == 'rolling'
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f latest "$GITHUB_SHA"
+          git push --force origin refs/tags/latest
+          git ls-remote --tags origin refs/tags/latest
+      - name: Export image and write release notes
+        env:
+          ASSET_SUFFIX: ${{ needs.classify.outputs.asset_suffix }}
+          IMAGE_TAG: ${{ needs.classify.outputs.image_tag }}
+          MODE: ${{ needs.classify.outputs.mode }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
           mkdir -p dist
 
-          ghcr_image="ghcr.io/zefan-xu/docker-qbittorrentvpn:${version}"
-          dockerhub_image="benjaminxzf/docker-qbittorrentvpn:${version}"
-          archive="dist/docker-qbittorrentvpn-${version}.oci.tar"
+          ghcr_image="ghcr.io/zefan-xu/docker-qbittorrentvpn:${IMAGE_TAG}"
+          dockerhub_image="benjaminxzf/docker-qbittorrentvpn:${IMAGE_TAG}"
+          sha_tag="sha-${GITHUB_SHA}"
+          archive="dist/docker-qbittorrentvpn-${ASSET_SUFFIX}.oci.tar"
           compressed="${archive}.zst"
-          digest_file="dist/image-digests-${version}.txt"
+          digest_file="dist/image-digests-${ASSET_SUFFIX}.txt"
           notes_file="dist/RELEASE_NOTES.md"
 
           skopeo copy --all "docker://${ghcr_image}" "oci-archive:${archive}"
@@ -190,26 +270,47 @@ jobs:
           sha256sum "$compressed" | tee "${compressed}.sha256"
 
           {
-            echo "GHCR image:"
+            echo "GHCR primary image:"
             docker buildx imagetools inspect "$ghcr_image"
             echo
-            echo "Docker Hub image:"
+            echo "Docker Hub primary image:"
             docker buildx imagetools inspect "$dockerhub_image"
+            echo
+            echo "GHCR immutable SHA image:"
+            docker buildx imagetools inspect "ghcr.io/zefan-xu/docker-qbittorrentvpn:${sha_tag}"
+            echo
+            echo "Docker Hub immutable SHA image:"
+            docker buildx imagetools inspect "benjaminxzf/docker-qbittorrentvpn:${sha_tag}"
           } | tee "$digest_file"
 
+          if [[ "$MODE" == rolling ]]; then
+            heading="Latest Rolling Container Images"
+            release_sentence="This rolling release is updated by the Release workflow after the full preflight suite, registry manifest checks, and registry smoke tests pass for GHCR and Docker Hub."
+            archive_sentence="The attached OCI archive contains the same multi-arch latest image exported from GHCR after registry smoke passed."
+          else
+            heading="Container Images"
+            release_sentence="This versioned release passed the full release gate: smoke tests, integration tests, registry manifest checks, and registry smoke tests for GHCR and Docker Hub."
+            archive_sentence="The attached OCI archive contains the same multi-arch versioned image exported from GHCR after registry smoke passed."
+          fi
+
           {
-            echo "## Container Images"
+            echo "## ${heading}"
             echo
             echo '```sh'
-            echo "docker pull ${ghcr_image}"
             echo "docker pull ${dockerhub_image}"
+            echo "docker pull ${ghcr_image}"
+            echo "docker pull benjaminxzf/docker-qbittorrentvpn:${sha_tag}"
+            echo "docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:${sha_tag}"
             echo '```'
             echo
             echo "Supported platforms: \`linux/amd64\`, \`linux/arm64\`."
             echo
-            echo "This release passed the full release gate: smoke tests, integration tests, registry manifest checks, and registry smoke tests for GHCR and Docker Hub."
+            echo "Source commit: \`${GITHUB_SHA}\`"
+            echo "Workflow run: ${RUN_URL}"
             echo
-            echo "The attached OCI archive contains the same multi-arch image exported from GHCR after registry smoke passed."
+            echo "$release_sentence"
+            echo
+            echo "$archive_sentence"
             echo
             echo "Archive asset: \`$(basename "$compressed")\`"
             echo "Checksum asset: \`$(basename "${compressed}.sha256")\`"
@@ -218,18 +319,28 @@ jobs:
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          ASSET_SUFFIX: ${{ needs.classify.outputs.asset_suffix }}
+          MODE: ${{ needs.classify.outputs.mode }}
+          RELEASE_TAG: ${{ needs.classify.outputs.release_tag }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
           notes_file="dist/RELEASE_NOTES.md"
           assets=(
-            "dist/docker-qbittorrentvpn-${version}.oci.tar.zst"
-            "dist/docker-qbittorrentvpn-${version}.oci.tar.zst.sha256"
-            "dist/image-digests-${version}.txt"
+            "dist/docker-qbittorrentvpn-${ASSET_SUFFIX}.oci.tar.zst"
+            "dist/docker-qbittorrentvpn-${ASSET_SUFFIX}.oci.tar.zst.sha256"
+            "dist/image-digests-${ASSET_SUFFIX}.txt"
           )
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$notes_file"
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if [[ "$MODE" == rolling ]]; then
+              gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file "$notes_file" --latest
+            else
+              gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file "$notes_file"
+            fi
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "${assets[@]}" --title "$GITHUB_REF_NAME" --notes-file "$notes_file" --verify-tag
+            if [[ "$MODE" == rolling ]]; then
+              gh release create "$RELEASE_TAG" "${assets[@]}" --title "$RELEASE_TAG" --notes-file "$notes_file" --latest --verify-tag
+            else
+              gh release create "$RELEASE_TAG" "${assets[@]}" --title "$RELEASE_TAG" --notes-file "$notes_file" --latest=false --verify-tag
+            fi
           fi

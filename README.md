@@ -149,23 +149,25 @@ CI covers:
 - graceful container stop
 - compose syntax
 
-## Development Flow
+## Release Flow
 
-Stable release images are published only by GitHub Actions on tags matching `v*`.
+The `Release` GitHub Actions workflow handles both versioned releases and the rolling daily release.
+
+Versioned release images are published by pushing tags matching `v*`.
 
 ```sh
 git tag v5.1.4-3
 git push --tags
 ```
 
-Tag releases publish `latest`, the semver tag, the major/minor tag, and a `sha-...` tag to both registries:
+Versioned releases publish the semver tag, the major/minor tag, and a `sha-...` tag to both registries:
 
 - `benjaminxzf/docker-qbittorrentvpn`
 - `ghcr.io/zefan-xu/docker-qbittorrentvpn`
 
-Tag releases also create versioned GitHub Releases with release notes, image digests, and compressed multi-arch OCI archives exported from the published GHCR image after registry smoke passes.
+Versioned releases also create immutable GitHub Releases such as `v5.1.4-3`, with release notes, image digests, and compressed multi-arch OCI archives exported from the published GHCR image after registry smoke passes.
 
-Nightly runs publish `latest` and `sha-...` tags to both registries, then update the rolling GitHub Release named `latest`. That release includes the tested commit SHA, workflow run URL, image digests, checksum, and a compressed multi-arch OCI archive exported from the published GHCR `latest` image after registry smoke passes.
+The same `Release` workflow is also scheduled daily on `main`. Scheduled and manually-dispatched `main` runs publish `latest` and `sha-...` tags to both registries, then update the rolling GitHub Release named `latest`. That release includes the tested commit SHA, workflow run URL, image digests, checksum, and a compressed multi-arch OCI archive exported from the published GHCR `latest` image after registry smoke passes.
 
 Docker Hub publishing requires these GitHub Actions secrets:
 
