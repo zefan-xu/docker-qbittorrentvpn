@@ -6,8 +6,15 @@ This repository is forked from [DyonR/docker-qbittorrentvpn](https://github.com/
 
 ## Image
 
+Pull from Docker Hub:
+
 ```sh
 docker pull benjaminxzf/docker-qbittorrentvpn:latest
+```
+
+Or pull from GHCR:
+
+```sh
 docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:latest
 ```
 
@@ -168,8 +175,3 @@ Versioned releases publish the semver tag, the major/minor tag, and a `sha-...` 
 Versioned releases also create immutable GitHub Releases such as `v5.1.4-3`, with release notes, image digests, and compressed multi-arch OCI archives exported from the published GHCR image after registry smoke passes.
 
 The same `Release` workflow is also scheduled daily on `main`. Scheduled and manually-dispatched `main` runs publish `latest` and `sha-...` tags to both registries, then update the rolling GitHub Release named `latest`. That release includes the tested commit SHA, workflow run URL, image digests, checksum, and a compressed multi-arch OCI archive exported from the published GHCR `latest` image after registry smoke passes.
-
-Docker Hub publishing requires these GitHub Actions secrets:
-
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN`
