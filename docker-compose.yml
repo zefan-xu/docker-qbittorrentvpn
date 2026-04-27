@@ -1,6 +1,6 @@
 services:
   qbittorrentvpn:
-    image: ghcr.io/zefan-xu/docker-qbittorrentvpn:latest
+    image: benjaminxzf/docker-qbittorrentvpn:latest
     cap_add:
       - NET_ADMIN
     devices:

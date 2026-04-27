@@ -1,12 +1,13 @@
 # qBittorrent + OpenVPN/WireGuard
 
-Modern qBittorrent VPN container with a fail-closed firewall, OpenVPN or WireGuard, s6-overlay supervision, and multi-arch GHCR images.
+Modern qBittorrent VPN container with a fail-closed firewall, OpenVPN or WireGuard, s6-overlay supervision, and multi-arch Docker Hub/GHCR images.
 
 This repository is forked from [DyonR/docker-qbittorrentvpn](https://github.com/DyonR/docker-qbittorrentvpn), which originated from MarkusMcNugen/docker-qBittorrentvpn. The project remains licensed under GPL-3.0.
 
 ## Image
 
 ```sh
+docker pull benjaminxzf/docker-qbittorrentvpn:latest
 docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:latest
 ```
 
@@ -28,7 +29,7 @@ Runtime stack:
 ```yaml
 services:
   qbittorrentvpn:
-    image: ghcr.io/zefan-xu/docker-qbittorrentvpn:latest
+    image: benjaminxzf/docker-qbittorrentvpn:latest
     cap_add:
       - NET_ADMIN
     devices:
@@ -114,7 +115,7 @@ The WebUI port inside the container is fixed at `8080`. Remap the host port with
 
 This project assumes local Docker may be unavailable. Docker-dependent validation runs in GitHub Actions.
 
-Keep working until this release gate is true: CI is green on the exact commit being merged or tagged, the torrent jobs prove completed downloads with checksums, the VPN jobs prove egress source IPs are the VPN endpoint, kill-switch jobs prove blocked egress after tunnel loss, and the release workflow has a passing registry smoke test for the image tag it published.
+Keep working until this release gate is true: CI is green on the exact commit being merged or tagged, the torrent jobs prove completed downloads with checksums, the VPN jobs prove egress source IPs are the VPN endpoint, kill-switch jobs prove blocked egress after tunnel loss, and the release workflow has passing registry smoke tests for every image tag it published.
 
 CI covers:
 
@@ -150,11 +151,23 @@ CI covers:
 
 ## Development Flow
 
-The release image is published only by GitHub Actions on tags matching `v*`.
+Stable release images are published only by GitHub Actions on tags matching `v*`.
 
 ```sh
-git tag v5.1.4-1
+git tag v5.1.4-3
 git push --tags
 ```
 
-After the first GHCR publish, make the package public in GitHub's package settings if it is still private.
+Tag releases publish `latest`, the semver tag, the major/minor tag, and a `sha-...` tag to both registries:
+
+- `benjaminxzf/docker-qbittorrentvpn`
+- `ghcr.io/zefan-xu/docker-qbittorrentvpn`
+
+Tag releases also create a GitHub Release with release notes, image digests, and a compressed multi-arch OCI archive exported from the published GHCR image after registry smoke passes.
+
+Nightly runs publish only `latest` and `sha-...` tags to both registries. They do not create GitHub Releases.
+
+Docker Hub publishing requires these GitHub Actions secrets:
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`

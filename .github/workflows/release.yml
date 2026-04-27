@@ -64,10 +64,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          images: ghcr.io/zefan-xu/docker-qbittorrentvpn
+          images: |
+            ghcr.io/zefan-xu/docker-qbittorrentvpn
+            benjaminxzf/docker-qbittorrentvpn
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -101,32 +107,129 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Verify published manifest platforms
         run: |
           set -euo pipefail
           if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
-            image="ghcr.io/zefan-xu/docker-qbittorrentvpn:${GITHUB_REF_NAME#v}"
+            image_tag="${GITHUB_REF_NAME#v}"
           else
-            image="ghcr.io/zefan-xu/docker-qbittorrentvpn:sha-${GITHUB_SHA}"
+            image_tag="sha-${GITHUB_SHA}"
           fi
-          docker buildx imagetools inspect "$image" | tee manifest.txt
-          grep -F 'linux/amd64' manifest.txt
-          grep -F 'linux/arm64' manifest.txt
+          for image in \
+            "ghcr.io/zefan-xu/docker-qbittorrentvpn:${image_tag}" \
+            "benjaminxzf/docker-qbittorrentvpn:${image_tag}"; do
+            safe_name=$(printf '%s' "$image" | tr '/:.' '---')
+            docker buildx imagetools inspect "$image" | tee "manifest-${safe_name}.txt"
+            grep -F 'linux/amd64' "manifest-${safe_name}.txt"
+            grep -F 'linux/arm64' "manifest-${safe_name}.txt"
+          done
       - name: Pull published image and run smoke
-        env:
-          ARTIFACT_DIR: tests/smoke/tmp/artifacts-registry-smoke
         run: |
           set -euo pipefail
           if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
-            image="ghcr.io/zefan-xu/docker-qbittorrentvpn:${GITHUB_REF_NAME#v}"
+            image_tag="${GITHUB_REF_NAME#v}"
           else
-            image="ghcr.io/zefan-xu/docker-qbittorrentvpn:sha-${GITHUB_SHA}"
+            image_tag="sha-${GITHUB_SHA}"
           fi
-          docker pull "$image"
-          IMAGE="$image" bash tests/smoke/run.sh smoke-http-vpn-disabled
+          for image in \
+            "ghcr.io/zefan-xu/docker-qbittorrentvpn:${image_tag}" \
+            "benjaminxzf/docker-qbittorrentvpn:${image_tag}"; do
+            safe_name=$(printf '%s' "$image" | tr '/:.' '---')
+            docker pull "$image"
+            ARTIFACT_DIR="tests/smoke/tmp/artifacts-registry-smoke-${safe_name}" \
+              IMAGE="$image" \
+              bash tests/smoke/run.sh smoke-http-vpn-disabled
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: registry-smoke-artifacts
-          path: tests/smoke/tmp/artifacts-registry-smoke
+          path: tests/smoke/tmp/artifacts-registry-smoke-*
           if-no-files-found: ignore
+
+  github-release:
+    name: github-release
+    runs-on: ubuntu-latest
+    needs: registry-smoke
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install release tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo zstd
+      - name: Export image and write release notes
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+
+          ghcr_image="ghcr.io/zefan-xu/docker-qbittorrentvpn:${version}"
+          dockerhub_image="benjaminxzf/docker-qbittorrentvpn:${version}"
+          archive="dist/docker-qbittorrentvpn-${version}.oci.tar"
+          compressed="${archive}.zst"
+          digest_file="dist/image-digests-${version}.txt"
+          notes_file="dist/RELEASE_NOTES.md"
+
+          skopeo copy --all "docker://${ghcr_image}" "oci-archive:${archive}"
+          zstd -T0 -6 --rm "$archive"
+          sha256sum "$compressed" | tee "${compressed}.sha256"
+
+          {
+            echo "GHCR image:"
+            docker buildx imagetools inspect "$ghcr_image"
+            echo
+            echo "Docker Hub image:"
+            docker buildx imagetools inspect "$dockerhub_image"
+          } | tee "$digest_file"
+
+          {
+            echo "## Container Images"
+            echo
+            echo '```sh'
+            echo "docker pull ${ghcr_image}"
+            echo "docker pull ${dockerhub_image}"
+            echo '```'
+            echo
+            echo "Supported platforms: \`linux/amd64\`, \`linux/arm64\`."
+            echo
+            echo "This release passed the full release gate: smoke tests, integration tests, registry manifest checks, and registry smoke tests for GHCR and Docker Hub."
+            echo
+            echo "The attached OCI archive contains the same multi-arch image exported from GHCR after registry smoke passed."
+            echo
+            echo "Archive asset: \`$(basename "$compressed")\`"
+            echo "Checksum asset: \`$(basename "${compressed}.sha256")\`"
+            echo "Digest asset: \`$(basename "$digest_file")\`"
+          } > "$notes_file"
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          notes_file="dist/RELEASE_NOTES.md"
+          assets=(
+            "dist/docker-qbittorrentvpn-${version}.oci.tar.zst"
+            "dist/docker-qbittorrentvpn-${version}.oci.tar.zst.sha256"
+            "dist/image-digests-${version}.txt"
+          )
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$notes_file"
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" --title "$GITHUB_REF_NAME" --notes-file "$notes_file" --verify-tag
+          fi
