@@ -163,9 +163,9 @@ Tag releases publish `latest`, the semver tag, the major/minor tag, and a `sha-.
 - `benjaminxzf/docker-qbittorrentvpn`
 - `ghcr.io/zefan-xu/docker-qbittorrentvpn`
 
-Tag releases also create a GitHub Release with release notes, image digests, and a compressed multi-arch OCI archive exported from the published GHCR image after registry smoke passes.
+Tag releases also create versioned GitHub Releases with release notes, image digests, and compressed multi-arch OCI archives exported from the published GHCR image after registry smoke passes.
 
-Nightly runs publish only `latest` and `sha-...` tags to both registries. They do not create GitHub Releases.
+Nightly runs publish `latest` and `sha-...` tags to both registries, then update the rolling GitHub Release named `latest`. That release includes the tested commit SHA, workflow run URL, image digests, checksum, and a compressed multi-arch OCI archive exported from the published GHCR `latest` image after registry smoke passes.
 
 Docker Hub publishing requires these GitHub Actions secrets:
 

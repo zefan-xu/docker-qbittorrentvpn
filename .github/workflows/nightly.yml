@@ -10,6 +10,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
 jobs:
   preflight:
     name: preflight-full-test-suite
@@ -138,3 +142,111 @@ jobs:
           name: nightly-registry-smoke-artifacts
           path: tests/smoke/tmp/artifacts-nightly-registry-smoke-*
           if-no-files-found: ignore
+
+  github-release-latest:
+    name: github-release-latest
+    runs-on: ubuntu-latest
+    needs: registry-smoke
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Install release tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends skopeo zstd
+      - name: Move latest tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f latest "$GITHUB_SHA"
+          git push --force origin refs/tags/latest
+          git ls-remote --tags origin refs/tags/latest
+      - name: Export latest image and write release notes
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          ghcr_image="ghcr.io/zefan-xu/docker-qbittorrentvpn:latest"
+          dockerhub_image="benjaminxzf/docker-qbittorrentvpn:latest"
+          sha_tag="sha-${GITHUB_SHA}"
+          archive="dist/docker-qbittorrentvpn-latest.oci.tar"
+          compressed="${archive}.zst"
+          digest_file="dist/image-digests-latest.txt"
+          notes_file="dist/RELEASE_NOTES.md"
+
+          skopeo copy --all "docker://${ghcr_image}" "oci-archive:${archive}"
+          zstd -T0 -6 --rm "$archive"
+          sha256sum "$compressed" | tee "${compressed}.sha256"
+
+          {
+            echo "GHCR latest image:"
+            docker buildx imagetools inspect "$ghcr_image"
+            echo
+            echo "Docker Hub latest image:"
+            docker buildx imagetools inspect "$dockerhub_image"
+            echo
+            echo "GHCR immutable SHA image:"
+            docker buildx imagetools inspect "ghcr.io/zefan-xu/docker-qbittorrentvpn:${sha_tag}"
+            echo
+            echo "Docker Hub immutable SHA image:"
+            docker buildx imagetools inspect "benjaminxzf/docker-qbittorrentvpn:${sha_tag}"
+          } | tee "$digest_file"
+
+          {
+            echo "## Latest Nightly Container Images"
+            echo
+            echo '```sh'
+            echo "docker pull ${dockerhub_image}"
+            echo "docker pull ${ghcr_image}"
+            echo "docker pull benjaminxzf/docker-qbittorrentvpn:${sha_tag}"
+            echo "docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:${sha_tag}"
+            echo '```'
+            echo
+            echo "Supported platforms: \`linux/amd64\`, \`linux/arm64\`."
+            echo
+            echo "Source commit: \`${GITHUB_SHA}\`"
+            echo "Workflow run: ${RUN_URL}"
+            echo
+            echo "This rolling release is updated by the Nightly workflow after the full preflight suite, registry manifest checks, and registry smoke tests pass for GHCR and Docker Hub."
+            echo
+            echo "The attached OCI archive contains the same multi-arch \`latest\` image exported from GHCR after registry smoke passed."
+            echo
+            echo "Archive asset: \`$(basename "$compressed")\`"
+            echo "Checksum asset: \`$(basename "${compressed}.sha256")\`"
+            echo "Digest asset: \`$(basename "$digest_file")\`"
+          } > "$notes_file"
+      - name: Create or update latest GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes_file="dist/RELEASE_NOTES.md"
+          assets=(
+            "dist/docker-qbittorrentvpn-latest.oci.tar.zst"
+            "dist/docker-qbittorrentvpn-latest.oci.tar.zst.sha256"
+            "dist/image-digests-latest.txt"
+          )
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --title latest --notes-file "$notes_file" --latest
+            gh release upload latest "${assets[@]}" --clobber
+          else
+            gh release create latest "${assets[@]}" --title latest --notes-file "$notes_file" --latest --verify-tag
+          fi
