@@ -32,15 +32,19 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
-            echo "mode=versioned" >> "$GITHUB_OUTPUT"
-            echo "image_tag=${version}" >> "$GITHUB_OUTPUT"
-            echo "release_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            echo "asset_suffix=${version}" >> "$GITHUB_OUTPUT"
+            {
+              echo "mode=versioned"
+              echo "image_tag=${version}"
+              echo "release_tag=${GITHUB_REF_NAME}"
+              echo "asset_suffix=${version}"
+            } >> "$GITHUB_OUTPUT"
           elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
-            echo "mode=rolling" >> "$GITHUB_OUTPUT"
-            echo "image_tag=latest" >> "$GITHUB_OUTPUT"
-            echo "release_tag=latest" >> "$GITHUB_OUTPUT"
-            echo "asset_suffix=latest" >> "$GITHUB_OUTPUT"
+            {
+              echo "mode=rolling"
+              echo "image_tag=latest"
+              echo "release_tag=latest"
+              echo "asset_suffix=latest"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "Release workflow must run on main or a v* tag; got ${GITHUB_REF}" >&2
             exit 1
