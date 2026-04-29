@@ -54,6 +54,8 @@ jobs:
     name: preflight-full-test-suite
     runs-on: ubuntu-latest
     needs: classify
+    outputs:
+      qbt_version: ${{ steps.qbt-version.outputs.qbt_version }}
     permissions:
       contents: read
     steps:
@@ -74,6 +76,18 @@ jobs:
       - uses: docker/setup-buildx-action@v4
       - name: Build amd64 image for release tests
         run: docker buildx build --platform linux/amd64 --load -t qbtvpn:ci .
+      - name: Detect qBittorrent version
+        id: qbt-version
+        run: |
+          set -euo pipefail
+          version_output=$(docker run --rm --entrypoint qbittorrent-nox qbtvpn:ci --version)
+          printf '%s\n' "$version_output"
+          qbt_version=$(printf '%s\n' "$version_output" | sed -nE 's/.*([0-9]+[.][0-9]+[.][0-9]+).*/\1/p' | head -n 1)
+          if [[ -z "$qbt_version" ]]; then
+            echo "Could not detect qBittorrent X.Y.Z version from: ${version_output}" >&2
+            exit 1
+          fi
+          echo "qbt_version=${qbt_version}" >> "$GITHUB_OUTPUT"
       - name: Run all smoke tests
         env:
           ARTIFACT_DIR: tests/smoke/tmp/artifacts-${{ needs.classify.outputs.mode }}-all
@@ -91,12 +105,90 @@ jobs:
             tests/integration/tmp/artifacts-*
           if-no-files-found: ignore
 
+  resolve-release:
+    name: resolve-release
+    runs-on: ubuntu-latest
+    needs:
+      - classify
+      - preflight
+    outputs:
+      image_tag: ${{ steps.release.outputs.image_tag }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      asset_suffix: ${{ steps.release.outputs.asset_suffix }}
+      minor_tag: ${{ steps.release.outputs.minor_tag }}
+      qbt_version: ${{ steps.release.outputs.qbt_version }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - id: release
+        env:
+          MODE: ${{ needs.classify.outputs.mode }}
+          TAG_IMAGE: ${{ needs.classify.outputs.image_tag }}
+          TAG_RELEASE: ${{ needs.classify.outputs.release_tag }}
+          QBT_VERSION: ${{ needs.preflight.outputs.qbt_version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$MODE" == versioned ]]; then
+            image_tag="$TAG_IMAGE"
+            release_tag="$TAG_RELEASE"
+            asset_suffix="$image_tag"
+            qbt_version=$(sed -nE 's/^([0-9]+[.][0-9]+[.][0-9]+).*/\1/p' <<< "$image_tag")
+            if [[ -z "$qbt_version" ]]; then
+              echo "Could not parse qBittorrent X.Y.Z version from tag ${TAG_RELEASE}" >&2
+              exit 1
+            fi
+          elif [[ "$MODE" == rolling ]]; then
+            if [[ -z "$QBT_VERSION" ]]; then
+              echo "Missing qBittorrent version from preflight" >&2
+              exit 1
+            fi
+
+            max_suffix=0
+            tag_prefix="v${QBT_VERSION}-"
+            while read -r _ ref; do
+              tag="${ref#refs/tags/}"
+              tag="${tag%\^\{\}}"
+              suffix="${tag#"$tag_prefix"}"
+              if [[ "$tag" == "$tag_prefix"* && "$suffix" =~ ^[0-9]+$ ]]; then
+                suffix_num=$((10#$suffix))
+                if (( suffix_num > max_suffix )); then
+                  max_suffix="$suffix_num"
+                fi
+              fi
+            done < <(git ls-remote --tags origin "refs/tags/v${QBT_VERSION}-*" || true)
+
+            next_suffix=$((max_suffix + 1))
+            image_tag="${QBT_VERSION}-${next_suffix}"
+            release_tag="v${image_tag}"
+            asset_suffix="$image_tag"
+            qbt_version="$QBT_VERSION"
+          else
+            echo "Unsupported release mode: ${MODE}" >&2
+            exit 1
+          fi
+
+          minor_tag=$(sed -nE 's/^([0-9]+[.][0-9]+)[.].*/\1/p' <<< "$qbt_version")
+          if [[ -z "$minor_tag" ]]; then
+            echo "Could not derive major/minor image tag from qBittorrent version ${qbt_version}" >&2
+            exit 1
+          fi
+
+          {
+            echo "image_tag=${image_tag}"
+            echo "release_tag=${release_tag}"
+            echo "asset_suffix=${asset_suffix}"
+            echo "minor_tag=${minor_tag}"
+            echo "qbt_version=${qbt_version}"
+          } >> "$GITHUB_OUTPUT"
+
   publish:
     name: publish
     runs-on: ubuntu-latest
     needs:
       - classify
-      - preflight
+      - resolve-release
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-qemu-action@v4
@@ -110,51 +202,46 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - uses: docker/metadata-action@v6
-        id: meta-versioned
-        if: needs.classify.outputs.mode == 'versioned'
-        with:
-          images: |
-            ghcr.io/zefan-xu/docker-qbittorrentvpn
-            benjaminxzf/docker-qbittorrentvpn
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-,format=long
-          labels: |
-            org.opencontainers.image.source=https://github.com/zefan-xu/docker-qbittorrentvpn
-            org.opencontainers.image.licenses=GPL-3.0
-      - uses: docker/metadata-action@v6
-        id: meta-rolling
-        if: needs.classify.outputs.mode == 'rolling'
-        with:
-          images: |
-            ghcr.io/zefan-xu/docker-qbittorrentvpn
-            benjaminxzf/docker-qbittorrentvpn
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=sha-,format=long
-          labels: |
-            org.opencontainers.image.source=https://github.com/zefan-xu/docker-qbittorrentvpn
-            org.opencontainers.image.licenses=GPL-3.0
+      - name: Compute image metadata
+        id: meta
+        env:
+          IMAGE_TAG: ${{ needs.resolve-release.outputs.image_tag }}
+          MINOR_TAG: ${{ needs.resolve-release.outputs.minor_tag }}
+          MODE: ${{ needs.classify.outputs.mode }}
+        run: |
+          set -euo pipefail
+          images=(
+            "ghcr.io/zefan-xu/docker-qbittorrentvpn"
+            "benjaminxzf/docker-qbittorrentvpn"
+          )
+          release_tags=()
+          if [[ "$MODE" == rolling ]]; then
+            release_tags+=("latest")
+          fi
+          release_tags+=("$IMAGE_TAG")
+          release_tags+=("$MINOR_TAG")
+          release_tags+=("sha-${GITHUB_SHA}")
+
+          {
+            echo "tags<<EOF"
+            for image in "${images[@]}"; do
+              for tag in "${release_tags[@]}"; do
+                echo "${image}:${tag}"
+              done
+            done
+            echo "EOF"
+            echo "labels<<EOF"
+            echo "org.opencontainers.image.source=https://github.com/zefan-xu/docker-qbittorrentvpn"
+            echo "org.opencontainers.image.licenses=GPL-3.0"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v7
-        if: needs.classify.outputs.mode == 'versioned'
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta-versioned.outputs.tags }}
-          labels: ${{ steps.meta-versioned.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - uses: docker/build-push-action@v7
-        if: needs.classify.outputs.mode == 'rolling'
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-rolling.outputs.tags }}
-          labels: ${{ steps.meta-rolling.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -164,6 +251,7 @@ jobs:
     needs:
       - classify
       - publish
+      - resolve-release
     permissions:
       contents: read
       packages: read
@@ -180,11 +268,21 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Verify published manifest platforms
+        env:
+          IMAGE_TAG: ${{ needs.resolve-release.outputs.image_tag }}
+          MINOR_TAG: ${{ needs.resolve-release.outputs.minor_tag }}
+          MODE: ${{ needs.classify.outputs.mode }}
         run: |
           set -euo pipefail
-          primary_tag="${{ needs.classify.outputs.image_tag }}"
-          sha_tag="sha-${GITHUB_SHA}"
-          for tag in "$primary_tag" "$sha_tag"; do
+          tags=()
+          if [[ "$MODE" == rolling ]]; then
+            tags+=("latest")
+          fi
+          tags+=("$IMAGE_TAG")
+          tags+=("$MINOR_TAG")
+          tags+=("sha-${GITHUB_SHA}")
+
+          for tag in "${tags[@]}"; do
             for image in \
               "ghcr.io/zefan-xu/docker-qbittorrentvpn:${tag}" \
               "benjaminxzf/docker-qbittorrentvpn:${tag}"; do
@@ -195,17 +293,26 @@ jobs:
             done
           done
       - name: Pull published image and run smoke
+        env:
+          IMAGE_TAG: ${{ needs.resolve-release.outputs.image_tag }}
+          MODE: ${{ needs.classify.outputs.mode }}
         run: |
           set -euo pipefail
-          image_tag="${{ needs.classify.outputs.image_tag }}"
-          for image in \
-            "ghcr.io/zefan-xu/docker-qbittorrentvpn:${image_tag}" \
-            "benjaminxzf/docker-qbittorrentvpn:${image_tag}"; do
-            safe_name=$(printf '%s' "$image" | tr '/:.' '---')
-            docker pull "$image"
-            ARTIFACT_DIR="tests/smoke/tmp/artifacts-registry-smoke-${safe_name}" \
-              IMAGE="$image" \
-              bash tests/smoke/run.sh smoke-http-vpn-disabled
+          smoke_tags=("$IMAGE_TAG")
+          if [[ "$MODE" == rolling ]]; then
+            smoke_tags=("latest" "$IMAGE_TAG")
+          fi
+
+          for tag in "${smoke_tags[@]}"; do
+            for image in \
+              "ghcr.io/zefan-xu/docker-qbittorrentvpn:${tag}" \
+              "benjaminxzf/docker-qbittorrentvpn:${tag}"; do
+              safe_name=$(printf '%s' "$image" | tr '/:.' '---')
+              docker pull "$image"
+              ARTIFACT_DIR="tests/smoke/tmp/artifacts-registry-smoke-${safe_name}" \
+                IMAGE="$image" \
+                bash tests/smoke/run.sh smoke-http-vpn-disabled
+            done
           done
       - uses: actions/upload-artifact@v4
         if: always()
@@ -220,6 +327,7 @@ jobs:
     needs:
       - classify
       - registry-smoke
+      - resolve-release
     permissions:
       contents: write
       packages: read
@@ -251,100 +359,148 @@ jobs:
           git tag -f latest "$GITHUB_SHA"
           git push --force origin refs/tags/latest
           git ls-remote --tags origin refs/tags/latest
-      - name: Export image and write release notes
+      - name: Export images and write release notes
         env:
-          ASSET_SUFFIX: ${{ needs.classify.outputs.asset_suffix }}
-          IMAGE_TAG: ${{ needs.classify.outputs.image_tag }}
+          IMAGE_TAG: ${{ needs.resolve-release.outputs.image_tag }}
+          MINOR_TAG: ${{ needs.resolve-release.outputs.minor_tag }}
           MODE: ${{ needs.classify.outputs.mode }}
+          QBT_VERSION: ${{ needs.resolve-release.outputs.qbt_version }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           mkdir -p dist
 
-          ghcr_image="ghcr.io/zefan-xu/docker-qbittorrentvpn:${IMAGE_TAG}"
-          dockerhub_image="benjaminxzf/docker-qbittorrentvpn:${IMAGE_TAG}"
           sha_tag="sha-${GITHUB_SHA}"
-          archive="dist/docker-qbittorrentvpn-${ASSET_SUFFIX}.oci.tar"
-          compressed="${archive}.zst"
-          digest_file="dist/image-digests-${ASSET_SUFFIX}.txt"
-          notes_file="dist/RELEASE_NOTES.md"
+          inspect_image() {
+            local label="$1"
+            local image="$2"
+            echo "${label}:"
+            docker buildx imagetools inspect "$image"
+            echo
+          }
 
-          skopeo copy --all "docker://${ghcr_image}" "oci-archive:${archive}"
-          zstd -T0 -6 --rm "$archive"
-          sha256sum "$compressed" | tee "${compressed}.sha256"
+          write_release_files() {
+            local kind="$1"
+            local primary_tag="$2"
+            local asset_suffix="$3"
+            local ghcr_image="ghcr.io/zefan-xu/docker-qbittorrentvpn:${primary_tag}"
+            local dockerhub_image="benjaminxzf/docker-qbittorrentvpn:${primary_tag}"
+            local archive="dist/docker-qbittorrentvpn-${asset_suffix}.oci.tar"
+            local compressed="${archive}.zst"
+            local digest_file="dist/image-digests-${asset_suffix}.txt"
+            local notes_file="dist/RELEASE_NOTES-${asset_suffix}.md"
+            local heading
+            local release_sentence
+            local archive_sentence
 
-          {
-            echo "GHCR primary image:"
-            docker buildx imagetools inspect "$ghcr_image"
-            echo
-            echo "Docker Hub primary image:"
-            docker buildx imagetools inspect "$dockerhub_image"
-            echo
-            echo "GHCR immutable SHA image:"
-            docker buildx imagetools inspect "ghcr.io/zefan-xu/docker-qbittorrentvpn:${sha_tag}"
-            echo
-            echo "Docker Hub immutable SHA image:"
-            docker buildx imagetools inspect "benjaminxzf/docker-qbittorrentvpn:${sha_tag}"
-          } | tee "$digest_file"
+            skopeo copy --all "docker://${ghcr_image}" "oci-archive:${archive}"
+            zstd -T0 -6 --rm "$archive"
+            sha256sum "$compressed" | tee "${compressed}.sha256"
+
+            {
+              inspect_image "GHCR primary image" "$ghcr_image"
+              inspect_image "Docker Hub primary image" "$dockerhub_image"
+              if [[ "$primary_tag" != "$IMAGE_TAG" ]]; then
+                inspect_image "GHCR immutable version image" "ghcr.io/zefan-xu/docker-qbittorrentvpn:${IMAGE_TAG}"
+                inspect_image "Docker Hub immutable version image" "benjaminxzf/docker-qbittorrentvpn:${IMAGE_TAG}"
+              fi
+              if [[ -n "$MINOR_TAG" && "$primary_tag" != "$MINOR_TAG" ]]; then
+                inspect_image "GHCR major/minor image" "ghcr.io/zefan-xu/docker-qbittorrentvpn:${MINOR_TAG}"
+                inspect_image "Docker Hub major/minor image" "benjaminxzf/docker-qbittorrentvpn:${MINOR_TAG}"
+              fi
+              inspect_image "GHCR immutable SHA image" "ghcr.io/zefan-xu/docker-qbittorrentvpn:${sha_tag}"
+              inspect_image "Docker Hub immutable SHA image" "benjaminxzf/docker-qbittorrentvpn:${sha_tag}"
+            } | tee "$digest_file"
+
+            if [[ "$kind" == latest ]]; then
+              heading="Latest Rolling Container Images"
+              release_sentence="This rolling release is updated by the Release workflow after the full preflight suite,"
+              release_sentence+=" registry manifest checks, and registry smoke tests pass for GHCR and Docker Hub."
+              release_sentence+=" The same run also creates the immutable versioned release v${IMAGE_TAG}."
+              archive_sentence="The attached OCI archive contains the same multi-arch latest image exported from GHCR after registry smoke passed."
+            else
+              heading="Container Images"
+              release_sentence="This versioned release passed the full release gate: smoke tests, integration tests, registry manifest checks, and registry smoke tests for GHCR and Docker Hub."
+              archive_sentence="The attached OCI archive contains the same multi-arch versioned image exported from GHCR after registry smoke passed."
+            fi
+
+            {
+              echo "## ${heading}"
+              echo
+              echo '```sh'
+              echo "docker pull ${dockerhub_image}"
+              echo "docker pull ${ghcr_image}"
+              if [[ "$primary_tag" != "$IMAGE_TAG" ]]; then
+                echo "docker pull benjaminxzf/docker-qbittorrentvpn:${IMAGE_TAG}"
+                echo "docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:${IMAGE_TAG}"
+              fi
+              if [[ -n "$MINOR_TAG" && "$primary_tag" != "$MINOR_TAG" ]]; then
+                echo "docker pull benjaminxzf/docker-qbittorrentvpn:${MINOR_TAG}"
+                echo "docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:${MINOR_TAG}"
+              fi
+              echo "docker pull benjaminxzf/docker-qbittorrentvpn:${sha_tag}"
+              echo "docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:${sha_tag}"
+              echo '```'
+              echo
+              echo "Supported platforms: \`linux/amd64\`, \`linux/arm64\`."
+              echo
+              echo "qBittorrent version: \`${QBT_VERSION}\`"
+              echo "Source commit: \`${GITHUB_SHA}\`"
+              echo "Workflow run: ${RUN_URL}"
+              echo
+              echo "$release_sentence"
+              echo
+              echo "$archive_sentence"
+              echo
+              echo "Archive asset: \`$(basename "$compressed")\`"
+              echo "Checksum asset: \`$(basename "${compressed}.sha256")\`"
+              echo "Digest asset: \`$(basename "$digest_file")\`"
+            } > "$notes_file"
+          }
 
           if [[ "$MODE" == rolling ]]; then
-            heading="Latest Rolling Container Images"
-            release_sentence="This rolling release is updated by the Release workflow after the full preflight suite, registry manifest checks, and registry smoke tests pass for GHCR and Docker Hub."
-            archive_sentence="The attached OCI archive contains the same multi-arch latest image exported from GHCR after registry smoke passed."
-          else
-            heading="Container Images"
-            release_sentence="This versioned release passed the full release gate: smoke tests, integration tests, registry manifest checks, and registry smoke tests for GHCR and Docker Hub."
-            archive_sentence="The attached OCI archive contains the same multi-arch versioned image exported from GHCR after registry smoke passed."
+            write_release_files latest latest latest
           fi
-
-          {
-            echo "## ${heading}"
-            echo
-            echo '```sh'
-            echo "docker pull ${dockerhub_image}"
-            echo "docker pull ${ghcr_image}"
-            echo "docker pull benjaminxzf/docker-qbittorrentvpn:${sha_tag}"
-            echo "docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:${sha_tag}"
-            echo '```'
-            echo
-            echo "Supported platforms: \`linux/amd64\`, \`linux/arm64\`."
-            echo
-            echo "Source commit: \`${GITHUB_SHA}\`"
-            echo "Workflow run: ${RUN_URL}"
-            echo
-            echo "$release_sentence"
-            echo
-            echo "$archive_sentence"
-            echo
-            echo "Archive asset: \`$(basename "$compressed")\`"
-            echo "Checksum asset: \`$(basename "${compressed}.sha256")\`"
-            echo "Digest asset: \`$(basename "$digest_file")\`"
-          } > "$notes_file"
+          write_release_files versioned "$IMAGE_TAG" "$IMAGE_TAG"
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          ASSET_SUFFIX: ${{ needs.classify.outputs.asset_suffix }}
+          ASSET_SUFFIX: ${{ needs.resolve-release.outputs.asset_suffix }}
           MODE: ${{ needs.classify.outputs.mode }}
-          RELEASE_TAG: ${{ needs.classify.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
         run: |
           set -euo pipefail
-          notes_file="dist/RELEASE_NOTES.md"
-          assets=(
-            "dist/docker-qbittorrentvpn-${ASSET_SUFFIX}.oci.tar.zst"
-            "dist/docker-qbittorrentvpn-${ASSET_SUFFIX}.oci.tar.zst.sha256"
-            "dist/image-digests-${ASSET_SUFFIX}.txt"
-          )
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            if [[ "$MODE" == rolling ]]; then
-              gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file "$notes_file" --latest
+
+          upsert_release() {
+            local release_tag="$1"
+            local asset_suffix="$2"
+            local latest_flag="$3"
+            local notes_file="dist/RELEASE_NOTES-${asset_suffix}.md"
+            local assets=(
+              "dist/docker-qbittorrentvpn-${asset_suffix}.oci.tar.zst"
+              "dist/docker-qbittorrentvpn-${asset_suffix}.oci.tar.zst.sha256"
+              "dist/image-digests-${asset_suffix}.txt"
+            )
+
+            if gh release view "$release_tag" >/dev/null 2>&1; then
+              if [[ "$latest_flag" == latest ]]; then
+                gh release edit "$release_tag" --title "$release_tag" --notes-file "$notes_file" --latest
+              else
+                gh release edit "$release_tag" --title "$release_tag" --notes-file "$notes_file"
+              fi
+              gh release upload "$release_tag" "${assets[@]}" --clobber
             else
-              gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file "$notes_file"
+              if [[ "$latest_flag" == latest ]]; then
+                gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest --verify-tag
+              elif [[ "$MODE" == versioned ]]; then
+                gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest=false --verify-tag
+              else
+                gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest=false --target "$GITHUB_SHA"
+              fi
             fi
-            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
-          else
-            if [[ "$MODE" == rolling ]]; then
-              gh release create "$RELEASE_TAG" "${assets[@]}" --title "$RELEASE_TAG" --notes-file "$notes_file" --latest --verify-tag
-            else
-              gh release create "$RELEASE_TAG" "${assets[@]}" --title "$RELEASE_TAG" --notes-file "$notes_file" --latest=false --verify-tag
-            fi
+          }
+
+          if [[ "$MODE" == rolling ]]; then
+            upsert_release latest latest latest
           fi
+          upsert_release "$RELEASE_TAG" "$ASSET_SUFFIX" versioned
