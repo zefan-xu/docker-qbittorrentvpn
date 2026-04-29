@@ -158,7 +158,7 @@ CI covers:
 
 ## Release Flow
 
-The `Release` GitHub Actions workflow handles both immutable versioned releases and the rolling daily release.
+The `Release` GitHub Actions workflow creates immutable versioned GitHub Releases and keeps rolling Docker image tags current.
 
 Versioned release images are published by pushing tags matching `v*`.
 
@@ -174,4 +174,4 @@ Versioned releases publish the semver tag, the major/minor tag, and a `sha-...` 
 
 Versioned releases also create immutable GitHub Releases such as `v5.1.4-3`, with release notes, image digests, and compressed multi-arch OCI archives exported from the published GHCR image after registry smoke passes.
 
-The same `Release` workflow is also scheduled daily on `main`. Scheduled and manually-dispatched `main` runs detect the qBittorrent version from the tested image, increment the next `vX.Y.Z-N` tag from existing remote tags, and publish `latest`, `X.Y.Z-N`, `X.Y`, and `sha-...` tags to both registries. After registry smoke passes, the workflow updates the rolling GitHub Release named `latest` and creates the new immutable versioned GitHub Release. The `latest` release remains marked as GitHub's Latest release.
+The same `Release` workflow is also scheduled daily on `main`. Scheduled and manually-dispatched `main` runs detect the qBittorrent version from the tested image, increment the next `vX.Y.Z-N` tag from existing remote tags, and publish `latest`, `X.Y.Z-N`, `X.Y`, and `sha-...` tags to both registries. After registry smoke passes, the workflow creates only the new immutable versioned GitHub Release and marks it as GitHub's Latest release. There is no rolling GitHub Release or Git tag named `latest`; only the Docker image tag `latest` moves.

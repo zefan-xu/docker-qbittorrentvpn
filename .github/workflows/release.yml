@@ -350,15 +350,6 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends skopeo zstd
-      - name: Move latest tag
-        if: needs.classify.outputs.mode == 'rolling'
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f latest "$GITHUB_SHA"
-          git push --force origin refs/tags/latest
-          git ls-remote --tags origin refs/tags/latest
       - name: Export images and write release notes
         env:
           IMAGE_TAG: ${{ needs.resolve-release.outputs.image_tag }}
@@ -380,9 +371,8 @@ jobs:
           }
 
           write_release_files() {
-            local kind="$1"
-            local primary_tag="$2"
-            local asset_suffix="$3"
+            local primary_tag="$1"
+            local asset_suffix="$2"
             local ghcr_image="ghcr.io/zefan-xu/docker-qbittorrentvpn:${primary_tag}"
             local dockerhub_image="benjaminxzf/docker-qbittorrentvpn:${primary_tag}"
             local archive="dist/docker-qbittorrentvpn-${asset_suffix}.oci.tar"
@@ -400,6 +390,10 @@ jobs:
             {
               inspect_image "GHCR primary image" "$ghcr_image"
               inspect_image "Docker Hub primary image" "$dockerhub_image"
+              if [[ "$MODE" == rolling ]]; then
+                inspect_image "GHCR rolling latest image" "ghcr.io/zefan-xu/docker-qbittorrentvpn:latest"
+                inspect_image "Docker Hub rolling latest image" "benjaminxzf/docker-qbittorrentvpn:latest"
+              fi
               if [[ "$primary_tag" != "$IMAGE_TAG" ]]; then
                 inspect_image "GHCR immutable version image" "ghcr.io/zefan-xu/docker-qbittorrentvpn:${IMAGE_TAG}"
                 inspect_image "Docker Hub immutable version image" "benjaminxzf/docker-qbittorrentvpn:${IMAGE_TAG}"
@@ -412,22 +406,22 @@ jobs:
               inspect_image "Docker Hub immutable SHA image" "benjaminxzf/docker-qbittorrentvpn:${sha_tag}"
             } | tee "$digest_file"
 
-            if [[ "$kind" == latest ]]; then
-              heading="Latest Rolling Container Images"
-              release_sentence="This rolling release is updated by the Release workflow after the full preflight suite,"
-              release_sentence+=" registry manifest checks, and registry smoke tests pass for GHCR and Docker Hub."
-              release_sentence+=" The same run also creates the immutable versioned release v${IMAGE_TAG}."
-              archive_sentence="The attached OCI archive contains the same multi-arch latest image exported from GHCR after registry smoke passed."
-            else
-              heading="Container Images"
-              release_sentence="This versioned release passed the full release gate: smoke tests, integration tests, registry manifest checks, and registry smoke tests for GHCR and Docker Hub."
-              archive_sentence="The attached OCI archive contains the same multi-arch versioned image exported from GHCR after registry smoke passed."
+            heading="Container Images"
+            release_sentence="This versioned release passed the full release gate: smoke tests, integration tests,"
+            release_sentence+=" registry manifest checks, and registry smoke tests for GHCR and Docker Hub."
+            if [[ "$MODE" == rolling ]]; then
+              release_sentence+=" The same run updated the Docker latest tags in GHCR and Docker Hub."
             fi
+            archive_sentence="The attached OCI archive contains the same multi-arch versioned image exported from GHCR after registry smoke passed."
 
             {
               echo "## ${heading}"
               echo
               echo '```sh'
+              if [[ "$MODE" == rolling ]]; then
+                echo "docker pull benjaminxzf/docker-qbittorrentvpn:latest"
+                echo "docker pull ghcr.io/zefan-xu/docker-qbittorrentvpn:latest"
+              fi
               echo "docker pull ${dockerhub_image}"
               echo "docker pull ${ghcr_image}"
               if [[ "$primary_tag" != "$IMAGE_TAG" ]]; then
@@ -458,10 +452,7 @@ jobs:
             } > "$notes_file"
           }
 
-          if [[ "$MODE" == rolling ]]; then
-            write_release_files latest latest latest
-          fi
-          write_release_files versioned "$IMAGE_TAG" "$IMAGE_TAG"
+          write_release_files "$IMAGE_TAG" "$IMAGE_TAG"
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -474,7 +465,6 @@ jobs:
           upsert_release() {
             local release_tag="$1"
             local asset_suffix="$2"
-            local latest_flag="$3"
             local notes_file="dist/RELEASE_NOTES-${asset_suffix}.md"
             local assets=(
               "dist/docker-qbittorrentvpn-${asset_suffix}.oci.tar.zst"
@@ -483,24 +473,13 @@ jobs:
             )
 
             if gh release view "$release_tag" >/dev/null 2>&1; then
-              if [[ "$latest_flag" == latest ]]; then
-                gh release edit "$release_tag" --title "$release_tag" --notes-file "$notes_file" --latest
-              else
-                gh release edit "$release_tag" --title "$release_tag" --notes-file "$notes_file"
-              fi
+              gh release edit "$release_tag" --title "$release_tag" --notes-file "$notes_file" --latest
               gh release upload "$release_tag" "${assets[@]}" --clobber
+            elif [[ "$MODE" == versioned ]]; then
+              gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest --verify-tag
             else
-              if [[ "$latest_flag" == latest ]]; then
-                gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest --verify-tag
-              elif [[ "$MODE" == versioned ]]; then
-                gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest=false --verify-tag
-              else
-                gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest=false --target "$GITHUB_SHA"
-              fi
+              gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest --target "$GITHUB_SHA"
             fi
           }
 
-          if [[ "$MODE" == rolling ]]; then
-            upsert_release latest latest latest
-          fi
-          upsert_release "$RELEASE_TAG" "$ASSET_SUFFIX" versioned
+          upsert_release "$RELEASE_TAG" "$ASSET_SUFFIX"
