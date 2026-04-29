@@ -5,10 +5,10 @@
     "docker:pinDigests",
     "helpers:pinGitHubActionDigests"
   ],
-  "timezone": "America/Los_Angeles",
   "schedule": [
     "before 5am every day"
   ],
+  "timezone": "America/Los_Angeles",
   "dependencyDashboard": true,
   "enabledManagers": [
     "dockerfile",
