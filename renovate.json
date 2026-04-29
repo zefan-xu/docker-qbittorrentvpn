@@ -1,0 +1,53 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "timezone": "America/Los_Angeles",
+  "schedule": [
+    "before 5am every day"
+  ],
+  "dependencyDashboard": true,
+  "enabledManagers": [
+    "dockerfile",
+    "github-actions",
+    "custom.regex"
+  ],
+  "ignorePaths": [
+    "docker-compose.yml"
+  ],
+  "automerge": true,
+  "automergeType": "pr",
+  "platformAutomerge": true,
+  "packageRules": [
+    {
+      "description": "Keep Docker image references immutable",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "pinDigests": true
+    },
+    {
+      "description": "Keep GitHub Actions references immutable",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "pinDigests": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update s6-overlay version in the Dockerfile",
+      "managerFilePatterns": [
+        "/(^|/)Dockerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+) extractVersion=(?<extractVersion>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+ARG S6_OVERLAY_VERSION=(?<currentValue>\\S+)"
+      ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver-coerced{{/if}}"
+    }
+  ]
+}

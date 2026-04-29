@@ -33,8 +33,8 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: hadolint/hadolint-action@v3.3.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5  # v3.3.0
         with:
           dockerfile: Dockerfile
       - name: ShellCheck
@@ -61,7 +61,7 @@ jobs:
     name: compose-syntax
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - run: docker compose -f docker-compose.yml config -q
 
   build-amd64-image:
@@ -71,13 +71,13 @@ jobs:
       - runner-capability
       - lint
     steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4
       - name: Build amd64 image
         run: docker buildx build --platform linux/amd64 --load -t qbtvpn:ci .
       - name: Export image artifact
         run: docker save qbtvpn:ci | gzip > qbtvpn-ci.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: qbtvpn-amd64-image
           path: qbtvpn-ci.tar.gz
@@ -90,9 +90,9 @@ jobs:
       - runner-capability
       - lint
     steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4
       - name: Build arm64 image
         run: docker buildx build --platform linux/arm64 -t qbtvpn:ci-arm64 .
 
@@ -109,8 +109,8 @@ jobs:
           - smoke-uid-gid-umask
           - smoke-config-persistence
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           name: qbtvpn-amd64-image
       - name: Load image
@@ -119,7 +119,7 @@ jobs:
         env:
           ARTIFACT_DIR: tests/smoke/tmp/artifacts-${{ matrix.scenario }}
         run: bash tests/smoke/run.sh "${{ matrix.scenario }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           name: smoke-${{ matrix.scenario }}-artifacts
@@ -156,8 +156,8 @@ jobs:
           - validation-failures
           - compose-example
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           name: qbtvpn-amd64-image
       - name: Load image
@@ -166,7 +166,7 @@ jobs:
         env:
           ARTIFACT_DIR: tests/integration/tmp/artifacts-${{ matrix.scenario }}
         run: bash tests/integration/run.sh "${{ matrix.scenario }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           name: integration-${{ matrix.scenario }}-artifacts
