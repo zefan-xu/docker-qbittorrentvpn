@@ -26,7 +26,8 @@ jobs:
             sudo chmod 666 /dev/net/tun
           fi
           test -c /dev/net/tun
-          docker run --rm --cap-add NET_ADMIN --device /dev/net/tun ubuntu:26.04 bash -c \
+          # renovate: datasource=docker depName=ubuntu versioning=docker
+          docker run --rm --cap-add NET_ADMIN --device /dev/net/tun ubuntu:26.04@sha256:5e275723f82c67e387ba9e3c24baa0abdcb268917f276a0561c97bef9450d0b4 bash -c \
             'apt-get update && apt-get install -y --no-install-recommends iproute2 >/dev/null && ip tuntap add dev testtun mode tun && ip link show testtun'
 
   lint:
@@ -54,7 +55,8 @@ jobs:
       - name: actionlint
         run: |
           set -euo pipefail
-          go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          # renovate: datasource=github-releases depName=rhysd/actionlint versioning=semver-coerced
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           "$HOME/go/bin/actionlint"
 
   compose-syntax:

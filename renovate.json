@@ -44,6 +44,43 @@
         "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+) extractVersion=(?<extractVersion>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+ARG S6_OVERLAY_VERSION=(?<currentValue>\\S+)"
       ],
       "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver-coerced{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Update selected Ubuntu package pins in the Dockerfile",
+      "managerFilePatterns": [
+        "/(^|/)Dockerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=deb depName=(?<depName>\\S+) suite=(?<suite>\\S+) components=(?<components>\\S+) binaryArch=(?<binaryArch>\\S+)\\s+ARG \\S+_VERSION=(?<currentValue>\\S+)"
+      ],
+      "registryUrlTemplate": "https://archive.ubuntu.com/ubuntu?suite={{{suite}}}&components={{{components}}}&binaryArch={{{binaryArch}}}",
+      "datasourceTemplate": "deb",
+      "versioningTemplate": "deb"
+    },
+    {
+      "customType": "regex",
+      "description": "Update actionlint installed in CI",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.*\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+go install github\\.com/rhysd/actionlint/cmd/actionlint@(?<currentValue>\\S+)"
+      ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver-coerced{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Update pinned Docker images used inside GitHub Actions run steps",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.*\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "\\s*# renovate: datasource=docker depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\s+(?<linePrefix>\\s*docker run .*? )ubuntu:(?<currentValue>[^\\s@]+)@(?<currentDigest>sha256:[a-f0-9]+)(?<lineSuffix> .*?)(?:\\n|$)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "{{{versioning}}}",
+      "autoReplaceStringTemplate": "          # renovate: datasource=docker depName={{{depName}}} versioning={{{versioning}}}\n{{{linePrefix}}}{{{depName}}}:{{{newValue}}}{{#if newDigest}}@{{{newDigest}}}{{else}}@{{{currentDigest}}}{{/if}}{{{lineSuffix}}}\n"
     }
   ]
 }
