@@ -2,7 +2,7 @@ FROM ubuntu:26.04@sha256:5e275723f82c67e387ba9e3c24baa0abdcb268917f276a0561c97be
 
 ARG TARGETARCH
 # renovate: datasource=github-releases depName=just-containers/s6-overlay extractVersion=^v(?<version>.*)$ versioning=loose
-ARG S6_OVERLAY_VERSION=3.2.3.0
+ARG S6_OVERLAY_VERSION=3.2.3.2
 # renovate: datasource=deb depName=qbittorrent-nox suite=resolute components=universe binaryArch=amd64
 ARG QBITTORRENT_NOX_VERSION=5.1.4-dmo1
 # renovate: datasource=deb depName=openvpn suite=resolute components=main binaryArch=amd64
