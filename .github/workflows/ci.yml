@@ -79,7 +79,7 @@ jobs:
         run: docker buildx build --platform linux/amd64 --load -t qbtvpn:ci .
       - name: Export image artifact
         run: docker save qbtvpn:ci | gzip > qbtvpn-ci.tar.gz
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: qbtvpn-amd64-image
           path: qbtvpn-ci.tar.gz
@@ -121,7 +121,7 @@ jobs:
         env:
           ARTIFACT_DIR: tests/smoke/tmp/artifacts-${{ matrix.scenario }}
         run: bash tests/smoke/run.sh "${{ matrix.scenario }}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         if: always()
         with:
           name: smoke-${{ matrix.scenario }}-artifacts
@@ -168,7 +168,7 @@ jobs:
         env:
           ARTIFACT_DIR: tests/integration/tmp/artifacts-${{ matrix.scenario }}
         run: bash tests/integration/run.sh "${{ matrix.scenario }}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         if: always()
         with:
           name: integration-${{ matrix.scenario }}-artifacts
