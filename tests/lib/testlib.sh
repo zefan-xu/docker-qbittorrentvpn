@@ -274,10 +274,15 @@ qbt_login_cookie() {
   local cookie=$3
   local curl_tls
   mapfile -t curl_tls < <(curl_for_scheme "${base%%://*}")
-  curl "${curl_tls[@]}" -c "$cookie" \
+  local response code body
+  # qBittorrent <=5.1 answers 200 "Ok."; 5.2+ answers 204 with an empty body.
+  response=$(curl "${curl_tls[@]}" -c "$cookie" -w '\n%{http_code}' \
     --data-urlencode "username=admin" \
     --data-urlencode "password=${password}" \
-    "${base}/api/v2/auth/login" | grep -q '^Ok\.$'
+    "${base}/api/v2/auth/login") || return 1
+  code=${response##*$'\n'}
+  body=${response%$'\n'*}
+  [[ "$code" == 204 || ( "$code" == 200 && "$body" == "Ok." ) ]]
 }
 
 qbt_api_get() {
