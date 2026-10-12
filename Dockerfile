@@ -95,4 +95,4 @@ EXPOSE 8080 8999 8999/udp
 VOLUME ["/config", "/downloads"]
 ENTRYPOINT ["/init"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD /usr/local/bin/qbtvpn-container-healthcheck
+  CMD ["/usr/local/bin/qbtvpn-container-healthcheck"]
