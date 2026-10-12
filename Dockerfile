@@ -86,9 +86,10 @@ RUN set -eux; \
     rm -f /tmp/s6-overlay-*.tar.xz /tmp/s6-overlay-*.tar.xz.sha256; \
     curl -fsSLo /tmp/qbittorrent-nox \
       "https://github.com/userdocs/qbittorrent-nox-static/releases/download/${QBITTORRENT_NOX_RELEASE}/${S6_ARCH}-qbittorrent-nox"; \
-    echo "${QBT_SHA256}  /tmp/qbittorrent-nox" | sha256sum -c -; \
+    echo "${QBT_SHA256}  /tmp/qbittorrent-nox" > /tmp/qbittorrent-nox.sha256; \
+    sha256sum -c /tmp/qbittorrent-nox.sha256; \
     install -m 0755 /tmp/qbittorrent-nox /usr/bin/qbittorrent-nox; \
-    rm -f /tmp/qbittorrent-nox; \
+    rm -f /tmp/qbittorrent-nox /tmp/qbittorrent-nox.sha256; \
     /usr/bin/qbittorrent-nox --version
 
 WORKDIR /
