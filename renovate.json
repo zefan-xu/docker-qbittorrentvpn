@@ -31,6 +31,13 @@
         "github-actions"
       ],
       "pinDigests": true
+    },
+    {
+      "description": "qBittorrent bumps need the per-arch SHA-256 pins updated by hand; never automerge",
+      "matchDepNames": [
+        "userdocs/qbittorrent-nox-static"
+      ],
+      "automerge": false
     }
   ],
   "customManagers": [
@@ -44,6 +51,17 @@
         "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+) extractVersion=(?<extractVersion>\\S+)(?: versioning=(?<versioning>\\S+))?\\s+ARG S6_OVERLAY_VERSION=(?<currentValue>\\S+)"
       ],
       "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver-coerced{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Update qBittorrent static build (userdocs/qbittorrent-nox-static) in the Dockerfile",
+      "managerFilePatterns": [
+        "/(^|/)Dockerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>userdocs/qbittorrent-nox-static)\\s+ARG QBITTORRENT_NOX_RELEASE=(?<currentValue>\\S+)"
+      ],
+      "versioningTemplate": "regex:^release-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)_v(?<build>\\d+\\.\\d+\\.\\d+)$"
     },
     {
       "customType": "regex",

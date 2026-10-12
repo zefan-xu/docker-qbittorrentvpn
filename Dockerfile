@@ -3,8 +3,12 @@ FROM ubuntu:26.04@sha256:5e275723f82c67e387ba9e3c24baa0abdcb268917f276a0561c97be
 ARG TARGETARCH
 # renovate: datasource=github-releases depName=just-containers/s6-overlay extractVersion=^v(?<version>.*)$ versioning=loose
 ARG S6_OVERLAY_VERSION=3.2.3.2
-# renovate: datasource=deb depName=qbittorrent-nox suite=resolute components=universe binaryArch=amd64
-ARG QBITTORRENT_NOX_VERSION=5.1.4-dmo1
+# Official static build from userdocs/qbittorrent-nox-static (tag release-<qbt>_v<libtorrent>).
+# renovate: datasource=github-releases depName=userdocs/qbittorrent-nox-static
+ARG QBITTORRENT_NOX_RELEASE=release-5.2.4_v2.0.15
+# SHA-256 of the release assets; must be updated together with QBITTORRENT_NOX_RELEASE.
+ARG QBITTORRENT_NOX_SHA256_AMD64=14d29323f1c12c1e8892ac69496f8b51ddebb74b4b590fc13e343aa213fecaf4
+ARG QBITTORRENT_NOX_SHA256_ARM64=f12e821d5782c39e3093d788689182e9ac823fa01b3a82d6c00fdb993e4428d8
 # renovate: datasource=deb depName=openvpn suite=resolute components=main binaryArch=amd64
 ARG OPENVPN_VERSION=2.7.0-1ubuntu1
 # renovate: datasource=deb depName=wireguard-tools suite=resolute components=main binaryArch=amd64
@@ -39,7 +43,6 @@ RUN set -eux; \
       curl \
       xz-utils \
       tzdata \
-      qbittorrent-nox="${QBITTORRENT_NOX_VERSION}" \
       openvpn="${OPENVPN_VERSION}" \
       wireguard-tools="${WIREGUARD_TOOLS_VERSION}" \
       iptables \
@@ -66,8 +69,8 @@ WORKDIR /tmp
 
 RUN set -eux; \
     case "${TARGETARCH}" in \
-      amd64) S6_ARCH=x86_64 ;; \
-      arm64) S6_ARCH=aarch64 ;; \
+      amd64) S6_ARCH=x86_64; QBT_SHA256="${QBITTORRENT_NOX_SHA256_AMD64}" ;; \
+      arm64) S6_ARCH=aarch64; QBT_SHA256="${QBITTORRENT_NOX_SHA256_ARM64}" ;; \
       *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     for asset in noarch "${S6_ARCH}"; do \
@@ -80,7 +83,14 @@ RUN set -eux; \
     sha256sum -c "s6-overlay-${S6_ARCH}.tar.xz.sha256"; \
     tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz; \
     tar -C / -Jxpf "/tmp/s6-overlay-${S6_ARCH}.tar.xz"; \
-    rm -f /tmp/s6-overlay-*.tar.xz /tmp/s6-overlay-*.tar.xz.sha256
+    rm -f /tmp/s6-overlay-*.tar.xz /tmp/s6-overlay-*.tar.xz.sha256; \
+    curl -fsSLo /tmp/qbittorrent-nox \
+      "https://github.com/userdocs/qbittorrent-nox-static/releases/download/${QBITTORRENT_NOX_RELEASE}/${S6_ARCH}-qbittorrent-nox"; \
+    echo "${QBT_SHA256}  /tmp/qbittorrent-nox" > /tmp/qbittorrent-nox.sha256; \
+    sha256sum -c /tmp/qbittorrent-nox.sha256; \
+    install -m 0755 /tmp/qbittorrent-nox /usr/bin/qbittorrent-nox; \
+    rm -f /tmp/qbittorrent-nox /tmp/qbittorrent-nox.sha256; \
+    /usr/bin/qbittorrent-nox --version
 
 WORKDIR /
 
