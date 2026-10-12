@@ -312,7 +312,7 @@ wait_for_qbt() {
     password=$(extract_temp_password "$name" || true)
     if [[ -n "$password" ]] && qbt_login_cookie "$base" "$password" "$cookie"; then
       version=$(qbt_api_get "$base" "$cookie" /api/v2/app/version)
-      if grep -Eq '^v?5\.1\.' <<< "$version"; then
+      if grep -Eq "^v?${EXPECTED_QBT_VERSION_RE:-5\.[0-9]+\.[0-9]+}" <<< "$version"; then
         record_evidence webui_version "$version"
         record_pass "qBittorrent WebUI ready for ${name}" "${base} version=${version}"
         return 0
