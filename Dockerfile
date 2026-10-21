@@ -5,7 +5,7 @@ ARG TARGETARCH
 ARG S6_OVERLAY_VERSION=3.2.3.2
 # Official static build from userdocs/qbittorrent-nox-static (tag release-<qbt>_v<libtorrent>).
 # renovate: datasource=github-releases depName=userdocs/qbittorrent-nox-static
-ARG QBITTORRENT_NOX_RELEASE=release-5.2.4_v2.0.15
+ARG QBITTORRENT_NOX_RELEASE=release-5.3.0_v2.1.2
 # SHA-256 of the release assets; must be updated together with QBITTORRENT_NOX_RELEASE.
 ARG QBITTORRENT_NOX_SHA256_AMD64=14d29323f1c12c1e8892ac69496f8b51ddebb74b4b590fc13e343aa213fecaf4
 ARG QBITTORRENT_NOX_SHA256_ARM64=f12e821d5782c39e3093d788689182e9ac823fa01b3a82d6c00fdb993e4428d8
