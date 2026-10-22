@@ -16,7 +16,7 @@ ARG QBITTORRENT_NOX_RELEASE_ARM64=release-5.3.0_v2.1.2
 ARG QBITTORRENT_NOX_SHA256_ARM64=5e4eeeea0ca58f551f21d4071a9f97dca47fc27f9884214e12eb2cde113d8843
 # resolute-updates includes the security pocket, so these pins can move forward.
 # renovate: datasource=deb depName=openvpn suite=resolute-updates components=main binaryArch=amd64
-ARG OPENVPN_VERSION=2.7.0-1ubuntu1.3
+ARG OPENVPN_VERSION=2.7.0-1ubuntu1.4
 # wireguard-tools is only published in the release pocket.
 # renovate: datasource=deb depName=wireguard-tools suite=resolute components=main binaryArch=amd64
 ARG WIREGUARD_TOOLS_VERSION=1.0.20250521-1ubuntu1
