@@ -60,8 +60,14 @@ test_smoke_http_vpn_disabled() {
   assert_command_succeeds "container healthcheck command succeeds" docker exec "$name" /usr/local/bin/qbtvpn-container-healthcheck
   # shellcheck disable=SC2016
   assert_command_succeeds "abc user defaults to 1000:1000" docker exec "$name" sh -c 'test "$(id -u abc)" = 1000 && test "$(id -g abc)" = 1000'
-  assert_file_contains "torrent port fixed in config" "${config_dir}/qBittorrent/config/qBittorrent.conf" 'Session\Port=8999'
-  assert_file_contains "webui username seeded" "${config_dir}/qBittorrent/config/qBittorrent.conf" 'WebUI\Username=admin'
+  assert_container_output_contains "torrent port fixed in config" "$name" 'Session\Port=8999' \
+    cat /config/qBittorrent/config/qBittorrent.conf
+  assert_container_output_contains "webui username seeded" "$name" 'WebUI\Username=admin' \
+    cat /config/qBittorrent/config/qBittorrent.conf
+  assert_container_output_contains "qBittorrent config is mode 600" "$name" "600" \
+    stat -c %a /config/qBittorrent/config/qBittorrent.conf
+  conf_uid=$(docker exec "$name" stat -c %u /config/qBittorrent/config/qBittorrent.conf)
+  assert_eq "qBittorrent config owned by runtime uid" 1000 "$conf_uid"
   record_evidence qbt_config "${config_dir}/qBittorrent/config/qBittorrent.conf"
 }
 
@@ -80,8 +86,55 @@ test_smoke_https_default() {
   wait_for_qbt "$name" "$host_port" https "$cookie"
   assert_file_exists "WebUI certificate generated" "${config_dir}/qBittorrent/config/WebUICertificate.crt"
   assert_file_exists "WebUI key generated" "${config_dir}/qBittorrent/config/WebUIKey.key"
-  assert_file_contains "HTTPS enabled in config" "${config_dir}/qBittorrent/config/qBittorrent.conf" 'WebUI\HTTPS\Enabled=true'
+  assert_container_output_contains "HTTPS enabled in config" "$name" 'WebUI\HTTPS\Enabled=true' \
+    cat /config/qBittorrent/config/qBittorrent.conf
+  assert_container_output_contains "qBittorrent config is mode 600" "$name" "600" \
+    stat -c %a /config/qBittorrent/config/qBittorrent.conf
+  assert_container_output_contains "generated WebUI cert has localhost SAN" "$name" "DNS:localhost" \
+    openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -noout -ext subjectAltName
+  assert_container_output_contains "generated WebUI cert has loopback SAN" "$name" "127.0.0.1" \
+    openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -noout -ext subjectAltName
+  assert_container_output_contains "generated WebUI cert is not a CA" "$name" "CA:FALSE" \
+    openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -noout -text
+  assert_container_output_contains "generated WebUI cert is serverAuth" "$name" "TLS Web Server Authentication" \
+    openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -noout -text
+  assert_container_output_contains "generated WebUI cert uses P-256" "$name" "prime256v1" \
+    openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -noout -text
+  assert_command_succeeds "generated WebUI cert is not yet expired" \
+    docker exec "$name" openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -checkend 0 -noout
+  assert_command_fails "generated WebUI cert expires within 826 days" \
+    docker exec "$name" openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -checkend "$((826 * 86400))" -noout
   assert_command_fails "plain HTTP does not pass when HTTPS is enabled" curl -fsS "http://127.0.0.1:${host_port}/api/v2/app/version"
+
+  # The config volume is owned by the runtime uid after first start, so plant
+  # replacement certificates as root inside the image.
+  docker stop "$name" >/dev/null
+  assert_command_succeeds "plant a user-supplied WebUI certificate" \
+    docker run --rm -v "${config_dir}:/config" --entrypoint sh "$IMAGE" -c \
+      'rm -f /config/qBittorrent/config/WebUICertificate.crt /config/qBittorrent/config/WebUIKey.key
+       openssl req -x509 -newkey rsa:2048 -noenc -days 30 \
+         -keyout /config/qBittorrent/config/WebUIKey.key \
+         -out /config/qBittorrent/config/WebUICertificate.crt \
+         -subj "/CN=user.example/O=UserSupplied"'
+  start_basic_container "$name" "$host_port" "$config_dir" "$downloads_dir"
+  wait_docker_logs_contains "user-supplied WebUI certificate is kept" "$name" "Keeping user-supplied WebUI certificate" 60
+  assert_container_output_contains "user-supplied WebUI certificate subject kept" "$name" "O=UserSupplied" \
+    openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -noout -subject
+
+  docker stop "$name" >/dev/null
+  assert_command_succeeds "plant a generated WebUI certificate without a SAN" \
+    docker run --rm -v "${config_dir}:/config" --entrypoint sh "$IMAGE" -c \
+      'rm -f /config/qBittorrent/config/WebUICertificate.crt /config/qBittorrent/config/WebUIKey.key
+       openssl req -x509 -newkey rsa:2048 -noenc -days 3650 \
+         -keyout /config/qBittorrent/config/WebUIKey.key \
+         -out /config/qBittorrent/config/WebUICertificate.crt \
+         -subj "/C=US/ST=Local/L=Local/O=qBittorrentVPN/OU=WebUI/CN=localhost"'
+  start_basic_container "$name" "$host_port" "$config_dir" "$downloads_dir"
+  wait_docker_logs_contains "stale generated WebUI certificate is replaced" "$name" "Replacing generated WebUI certificate" 60
+  assert_container_output_contains "replaced WebUI cert has localhost SAN" "$name" "DNS:localhost" \
+    openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -noout -ext subjectAltName
+  assert_container_output_contains "replaced WebUI cert uses P-256" "$name" "prime256v1" \
+    openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -noout -text
   record_evidence https_webui "enabled"
 }
 
@@ -125,8 +178,10 @@ test_smoke_config_persistence() {
 
   start_basic_container "$name" "$host_port" "$config_dir" "$downloads_dir" -e ENABLE_SSL=no
   wait_for_qbt "$name" "$host_port" http "$cookie"
-  assert_file_contains "first run wrote qBittorrent config" "$conf" 'WebUI\Port=8080'
-  assert_file_contains "non-managed qBittorrent preference starts from default" "$conf" 'Session\BTProtocol=Both'
+  assert_container_output_contains "first run wrote qBittorrent config" "$name" 'WebUI\Port=8080' \
+    cat /config/qBittorrent/config/qBittorrent.conf
+  assert_container_output_contains "non-managed qBittorrent preference starts from default" "$name" 'Session\BTProtocol=Both' \
+    cat /config/qBittorrent/config/qBittorrent.conf
 
   docker stop "$name" >/dev/null
   assert_command_succeeds "offline edit can persist a non-managed qBittorrent preference" \
@@ -134,8 +189,10 @@ test_smoke_config_persistence() {
       -c "sed -i 's/Session\\\\BTProtocol=Both/Session\\\\BTProtocol=TCP/' /config/qBittorrent/config/qBittorrent.conf"
   start_basic_container "$name" "$host_port" "$config_dir" "$downloads_dir" -e ENABLE_SSL=no
   wait_for_qbt "$name" "$host_port" http "$cookie"
-  assert_file_contains "non-managed qBittorrent preference survives restart" "$conf" 'Session\BTProtocol=TCP'
-  assert_file_contains "torrent port remains managed after restart" "$conf" 'Session\Port=8999'
+  assert_container_output_contains "non-managed qBittorrent preference survives restart" "$name" 'Session\BTProtocol=TCP' \
+    cat /config/qBittorrent/config/qBittorrent.conf
+  assert_container_output_contains "torrent port remains managed after restart" "$name" 'Session\Port=8999' \
+    cat /config/qBittorrent/config/qBittorrent.conf
   record_evidence persistence "$conf"
 }
 

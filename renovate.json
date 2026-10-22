@@ -33,10 +33,11 @@
       "pinDigests": true
     },
     {
-      "description": "qBittorrent bumps need the per-arch SHA-256 pins updated by hand; never automerge",
-      "matchDepNames": [
+      "description": "qBittorrent static-build bumps update both arch asset checksums and need review; libtorrent 2.1 resume data is not safely downgradable",
+      "matchPackageNames": [
         "userdocs/qbittorrent-nox-static"
       ],
+      "groupName": "userdocs/qbittorrent-nox-static",
       "automerge": false
     }
   ],
@@ -54,14 +55,15 @@
     },
     {
       "customType": "regex",
-      "description": "Update qBittorrent static build (userdocs/qbittorrent-nox-static) in the Dockerfile",
+      "description": "Update qBittorrent static build tag and the matching per-arch asset SHA-256",
       "managerFilePatterns": [
         "/(^|/)Dockerfile$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>userdocs/qbittorrent-nox-static)\\s+ARG QBITTORRENT_NOX_RELEASE=(?<currentValue>\\S+)"
+        "# renovate: datasource=(?<datasource>github-release-attachments) depName=(?<depName>userdocs/qbittorrent-nox-static/x86_64-qbittorrent-nox) packageName=(?<packageName>userdocs/qbittorrent-nox-static)\\s+ARG QBITTORRENT_NOX_RELEASE=(?<currentValue>\\S+)\\s+ARG QBITTORRENT_NOX_SHA256_AMD64=(?<currentDigest>[a-f0-9]+)",
+        "# renovate: datasource=(?<datasource>github-release-attachments) depName=(?<depName>userdocs/qbittorrent-nox-static/aarch64-qbittorrent-nox) packageName=(?<packageName>userdocs/qbittorrent-nox-static)\\s+ARG QBITTORRENT_NOX_RELEASE_ARM64=(?<currentValue>\\S+)\\s+ARG QBITTORRENT_NOX_SHA256_ARM64=(?<currentDigest>[a-f0-9]+)"
       ],
-      "versioningTemplate": "regex:^release-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)_v(?<build>\\d+\\.\\d+\\.\\d+)$"
+      "versioningTemplate": "regex:^release-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)_v(?<compatibility>\\d+)\\.(?<build>\\d+)\\.(?<revision>\\d+)$"
     },
     {
       "customType": "regex",
@@ -94,11 +96,10 @@
         "/^\\.github/workflows/.*\\.ya?ml$/"
       ],
       "matchStrings": [
-        "\\s*# renovate: datasource=docker depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\s+(?<linePrefix>\\s*docker run .*? )ubuntu:(?<currentValue>[^\\s@]+)@(?<currentDigest>sha256:[a-f0-9]+)(?<lineSuffix> .*?)(?:\\n|$)"
+        "# renovate: datasource=docker depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\n[ \\t]+docker run .*?ubuntu:(?<currentValue>[^\\s@]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
       "datasourceTemplate": "docker",
-      "versioningTemplate": "{{{versioning}}}",
-      "autoReplaceStringTemplate": "          # renovate: datasource=docker depName={{{depName}}} versioning={{{versioning}}}\n{{{linePrefix}}}{{{depName}}}:{{{newValue}}}{{#if newDigest}}@{{{newDigest}}}{{else}}@{{{currentDigest}}}{{/if}}{{{lineSuffix}}}\n"
+      "versioningTemplate": "{{{versioning}}}"
     }
   ]
 }

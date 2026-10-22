@@ -27,7 +27,7 @@ jobs:
           fi
           test -c /dev/net/tun
           # renovate: datasource=docker depName=ubuntu versioning=docker
-          docker run --rm --cap-add NET_ADMIN --device /dev/net/tun ubuntu:26.04@sha256:5e275723f82c67e387ba9e3c24baa0abdcb268917f276a0561c97bef9450d0b4 bash -c \
+          docker run --rm --cap-add NET_ADMIN --device /dev/net/tun ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944 bash -c \
             'apt-get update && apt-get install -y --no-install-recommends iproute2 >/dev/null && ip tuntap add dev testtun mode tun && ip link show testtun'
 
   lint:

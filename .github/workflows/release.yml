@@ -242,7 +242,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          # Nightly builds must not reuse cached apt layers, or the cron republishes
+          # the previous image. Tag and manual builds can still read the cache.
+          # The fresh nightly export refreshes that cache for later builds.
+          no-cache: ${{ github.event_name == 'schedule' }}
+          cache-from: ${{ github.event_name != 'schedule' && 'type=gha' || '' }}
           cache-to: type=gha,mode=max
 
   registry-smoke:
@@ -442,6 +446,20 @@ jobs:
               echo "Source commit: \`${GITHUB_SHA}\`"
               echo "Workflow run: ${RUN_URL}"
               echo
+              if [[ "$QBT_VERSION" == 5.3.* ]]; then
+                echo "## Upgrading from 5.2.x"
+                echo
+                echo "qBittorrent 5.3.0 in this image uses libtorrent 2.1.2."
+                echo "libtorrent 2.1 writes resume data in a newer format."
+                echo "It can load resume data written by 5.2.4, but rolling back to 5.2.4 may not read the new files."
+                echo "Torrents can need a recheck or be lost."
+                echo "Back up \`/config/qBittorrent/data/BT_backup\` before upgrading."
+                echo
+                echo "\`search/downloadTorrent\` and \`rss/setFeedRefreshInterval\` accept POST only."
+                echo "Reverse-proxy \`X-Forwarded-For\` handling changed."
+                echo "Set the trusted proxy list to the proxies you use, or the recorded client IP will differ."
+                echo
+              fi
               echo "$release_sentence"
               echo
               echo "$archive_sentence"
