@@ -1,20 +1,28 @@
-FROM ubuntu:26.04@sha256:5e275723f82c67e387ba9e3c24baa0abdcb268917f276a0561c97bef9450d0b4
+FROM ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944
 
 ARG TARGETARCH
 # renovate: datasource=github-releases depName=just-containers/s6-overlay extractVersion=^v(?<version>.*)$ versioning=loose
 ARG S6_OVERLAY_VERSION=3.2.3.2
 # Official static build from userdocs/qbittorrent-nox-static (tag release-<qbt>_v<libtorrent>).
-# renovate: datasource=github-releases depName=userdocs/qbittorrent-nox-static
-ARG QBITTORRENT_NOX_RELEASE=release-5.2.4_v2.0.15
-# SHA-256 of the release assets; must be updated together with QBITTORRENT_NOX_RELEASE.
-ARG QBITTORRENT_NOX_SHA256_AMD64=14d29323f1c12c1e8892ac69496f8b51ddebb74b4b590fc13e343aa213fecaf4
-ARG QBITTORRENT_NOX_SHA256_ARM64=f12e821d5782c39e3093d788689182e9ac823fa01b3a82d6c00fdb993e4428d8
-# renovate: datasource=deb depName=openvpn suite=resolute components=main binaryArch=amd64
-ARG OPENVPN_VERSION=2.7.0-1ubuntu1
+# Each arch is a separate Renovate dependency so a tag bump also updates that
+# asset's SHA-256. The two tags are checked for equality below. Renovate does
+# not notice a re-upload of the same tag (it keeps the current digest); the
+# sha256sum check still fails the build until the pins are updated.
+# renovate: datasource=github-release-attachments depName=userdocs/qbittorrent-nox-static/x86_64-qbittorrent-nox packageName=userdocs/qbittorrent-nox-static
+ARG QBITTORRENT_NOX_RELEASE=release-5.3.0_v2.1.2
+ARG QBITTORRENT_NOX_SHA256_AMD64=006071fb46f4223de042d1b7fed877e5d8ea9ed11066779c92ab889a658cc30b
+# renovate: datasource=github-release-attachments depName=userdocs/qbittorrent-nox-static/aarch64-qbittorrent-nox packageName=userdocs/qbittorrent-nox-static
+ARG QBITTORRENT_NOX_RELEASE_ARM64=release-5.3.0_v2.1.2
+ARG QBITTORRENT_NOX_SHA256_ARM64=5e4eeeea0ca58f551f21d4071a9f97dca47fc27f9884214e12eb2cde113d8843
+# resolute-updates includes the security pocket, so these pins can move forward.
+# renovate: datasource=deb depName=openvpn suite=resolute-updates components=main binaryArch=amd64
+ARG OPENVPN_VERSION=2.7.0-1ubuntu1.3
+# wireguard-tools is only published in the release pocket.
 # renovate: datasource=deb depName=wireguard-tools suite=resolute components=main binaryArch=amd64
 ARG WIREGUARD_TOOLS_VERSION=1.0.20250521-1ubuntu1
-# renovate: datasource=deb depName=openssl suite=resolute components=main binaryArch=amd64
-ARG OPENSSL_VERSION=3.5.5-1ubuntu3
+# libssl3t64 and openssl-provider-legacy ship the same version as the openssl CLI.
+# renovate: datasource=deb depName=openssl suite=resolute-updates components=main binaryArch=amd64
+ARG OPENSSL_VERSION=3.5.5-1ubuntu3.7
 
 ENV DEBIAN_FRONTEND=noninteractive \
     S6_VERBOSITY=1 \
@@ -37,6 +45,8 @@ RUN set -eux; \
       sed -i -E 's/^Components: .*/Components: main restricted universe multiverse/' /etc/apt/sources.list.d/ubuntu.sources; \
     fi; \
     apt-get update; \
+    # hadolint ignore=DL3005
+    apt-get -y upgrade; \
     apt-get install -y --no-install-recommends \
       bash \
       ca-certificates \
@@ -51,6 +61,8 @@ RUN set -eux; \
       dos2unix \
       moreutils \
       openssl="${OPENSSL_VERSION}" \
+      libssl3t64="${OPENSSL_VERSION}" \
+      openssl-provider-legacy="${OPENSSL_VERSION}" \
       procps \
       kmod \
       dnsutils \
@@ -60,6 +72,7 @@ RUN set -eux; \
       unzip \
       zip \
       unrar-free; \
+    rm -f /usr/bin/pebble; \
     rm -rf /var/lib/apt/lists/*; \
     groupadd -r abc; \
     useradd -r -g abc -d /config -s /usr/sbin/nologin abc; \
@@ -68,6 +81,10 @@ RUN set -eux; \
 WORKDIR /tmp
 
 RUN set -eux; \
+    if [ "${QBITTORRENT_NOX_RELEASE}" != "${QBITTORRENT_NOX_RELEASE_ARM64}" ]; then \
+      echo "qBittorrent release pins diverged: amd64=${QBITTORRENT_NOX_RELEASE} arm64=${QBITTORRENT_NOX_RELEASE_ARM64}" >&2; \
+      exit 1; \
+    fi; \
     case "${TARGETARCH}" in \
       amd64) S6_ARCH=x86_64; QBT_SHA256="${QBITTORRENT_NOX_SHA256_AMD64}" ;; \
       arm64) S6_ARCH=aarch64; QBT_SHA256="${QBITTORRENT_NOX_SHA256_ARM64}" ;; \

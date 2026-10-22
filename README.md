@@ -26,7 +26,7 @@ Supported platforms:
 Runtime stack:
 
 - Ubuntu 26.04 LTS
-- qBittorrent-nox from Ubuntu packages
+- qBittorrent-nox 5.3.0 static build (libtorrent 2.1.2) from [userdocs/qbittorrent-nox-static](https://github.com/userdocs/qbittorrent-nox-static)
 - OpenVPN and WireGuard from Ubuntu packages
 - s6-overlay v3
 - iptables-nft fail-closed kill switch
@@ -75,7 +75,17 @@ docker logs qbittorrentvpn
 
 The username is `admin` unless you change it in qBittorrent after first login.
 
-If `ENABLE_SSL=yes`, open `https://HOST:8080`. The container generates a self-signed certificate on first start. If `ENABLE_SSL=no`, open `http://HOST:8080`.
+If `ENABLE_SSL=yes`, open `https://HOST:8080`. On first start the container generates a self-signed P-256 WebUI certificate for `localhost` and `127.0.0.1`, valid for 825 days, with `CA:FALSE` and server authentication. It replaces that generated certificate when the SAN is missing or the certificate is within 30 days of expiry. A certificate whose subject organization is not `qBittorrentVPN` is treated as user-supplied and left in place. If `ENABLE_SSL=no`, open `http://HOST:8080`.
+
+`/config/qBittorrent/config/qBittorrent.conf` is mode `600` and owned by the runtime user, because it holds the WebUI password hash.
+
+## Upgrading to 5.3.0
+
+This image's qBittorrent 5.3.0 build uses libtorrent 2.1.2. libtorrent 2.1 writes resume data in a newer format. It can load resume data written by 5.2.4 / libtorrent 2.0, but rolling back to 5.2.4 can fail to read the new files, and torrents may need a recheck or be lost. Back up `/config/qBittorrent/data/BT_backup` before upgrading.
+
+`search/downloadTorrent` and `rss/setFeedRefreshInterval` are POST-only. Scripts that call them with GET need to switch to POST.
+
+Reverse-proxy `X-Forwarded-For` handling changed, including the fix for the WebUI authentication bypass in reverse-proxy setups. Set qBittorrent's trusted proxy list to the proxies you actually use. An incomplete list changes the client IP qBittorrent records. Keep `ENABLE_SSL=yes` unless you terminate TLS yourself.
 
 ## Environment
 
