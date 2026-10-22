@@ -66,8 +66,8 @@ test_smoke_http_vpn_disabled() {
     cat /config/qBittorrent/config/qBittorrent.conf
   assert_container_output_contains "qBittorrent config is mode 600" "$name" "600" \
     stat -c %a /config/qBittorrent/config/qBittorrent.conf
-  assert_container_output_contains "qBittorrent config owned by runtime user" "$name" "abc" \
-    stat -c %U /config/qBittorrent/config/qBittorrent.conf
+  conf_uid=$(docker exec "$name" stat -c %u /config/qBittorrent/config/qBittorrent.conf)
+  assert_eq "qBittorrent config owned by runtime uid" 1000 "$conf_uid"
   record_evidence qbt_config "${config_dir}/qBittorrent/config/qBittorrent.conf"
 }
 
@@ -118,7 +118,7 @@ test_smoke_https_default() {
          -subj "/CN=user.example/O=UserSupplied"'
   start_basic_container "$name" "$host_port" "$config_dir" "$downloads_dir"
   wait_docker_logs_contains "user-supplied WebUI certificate is kept" "$name" "Keeping user-supplied WebUI certificate" 60
-  assert_container_output_contains "user-supplied WebUI certificate subject kept" "$name" "O = UserSupplied" \
+  assert_container_output_contains "user-supplied WebUI certificate subject kept" "$name" "O=UserSupplied" \
     openssl x509 -in /config/qBittorrent/config/WebUICertificate.crt -noout -subject
 
   docker stop "$name" >/dev/null
