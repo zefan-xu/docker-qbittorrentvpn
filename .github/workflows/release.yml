@@ -58,8 +58,13 @@ jobs:
       qbt_version: ${{ steps.qbt-version.outputs.qbt_version }}
     permissions:
       contents: read
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Check published qBittorrent digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/qbittorrent-nox-digests.sh release-preflight
       - name: Verify Docker and TUN support
         run: |
           set -euxo pipefail
