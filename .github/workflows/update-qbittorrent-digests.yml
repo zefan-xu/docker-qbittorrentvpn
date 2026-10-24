@@ -1,0 +1,36 @@
+name: Update qBittorrent digests
+
+on:
+  workflow_dispatch:
+  schedule:
+    # An hour before the Release cron, so a same-tag asset swap can open a PR
+    # before that night's publish. Release preflight also dispatches this
+    # workflow when the pins are already stale.
+    - cron: '17 2 * * *'
+      timezone: America/Los_Angeles
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: update-qbittorrent-digests
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: update
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Open a pull request when the published digests change
+        env:
+          # Renovate's GitHub App token is not available here. GITHUB_TOKEN can
+          # push and open the pull request, but that event does not start CI,
+          # so the script dispatches the CI workflow on the bot branch.
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/qbittorrent-nox-digests.sh update

@@ -6,14 +6,15 @@ ARG S6_OVERLAY_VERSION=3.2.3.2
 # Official static build from userdocs/qbittorrent-nox-static (tag release-<qbt>_v<libtorrent>).
 # Each arch is a separate Renovate dependency so a tag bump also updates that
 # asset's SHA-256. The two tags are checked for equality below. Renovate does
-# not notice a re-upload of the same tag (it keeps the current digest); the
-# sha256sum check still fails the build until the pins are updated.
+# not notice a re-upload of the same tag. update-qbittorrent-digests.yml opens
+# a pull request when the published digest changes. Release preflight checks
+# these pins before the image build, and sha256sum still rejects a stale pin.
 # renovate: datasource=github-release-attachments depName=userdocs/qbittorrent-nox-static/x86_64-qbittorrent-nox packageName=userdocs/qbittorrent-nox-static
 ARG QBITTORRENT_NOX_RELEASE=release-5.3.0_v2.1.2
-ARG QBITTORRENT_NOX_SHA256_AMD64=006071fb46f4223de042d1b7fed877e5d8ea9ed11066779c92ab889a658cc30b
+ARG QBITTORRENT_NOX_SHA256_AMD64=563e695a2b830e62e627e1ae403bcfcc494e444d5cabb5ecc1e09907353d8ed5
 # renovate: datasource=github-release-attachments depName=userdocs/qbittorrent-nox-static/aarch64-qbittorrent-nox packageName=userdocs/qbittorrent-nox-static
 ARG QBITTORRENT_NOX_RELEASE_ARM64=release-5.3.0_v2.1.2
-ARG QBITTORRENT_NOX_SHA256_ARM64=5e4eeeea0ca58f551f21d4071a9f97dca47fc27f9884214e12eb2cde113d8843
+ARG QBITTORRENT_NOX_SHA256_ARM64=ac1e57089795270489491320c5fff0ceaed8e8910cf3abb6be597879408eb033
 # resolute-updates includes the security pocket, so these pins can move forward.
 # renovate: datasource=deb depName=openvpn suite=resolute-updates components=main binaryArch=amd64
 ARG OPENVPN_VERSION=2.7.0-1ubuntu1.4
@@ -104,7 +105,11 @@ RUN set -eux; \
     curl -fsSLo /tmp/qbittorrent-nox \
       "https://github.com/userdocs/qbittorrent-nox-static/releases/download/${QBITTORRENT_NOX_RELEASE}/${S6_ARCH}-qbittorrent-nox"; \
     echo "${QBT_SHA256}  /tmp/qbittorrent-nox" > /tmp/qbittorrent-nox.sha256; \
-    sha256sum -c /tmp/qbittorrent-nox.sha256; \
+    if ! sha256sum -c /tmp/qbittorrent-nox.sha256; then \
+      echo "Pinned SHA256 for ${S6_ARCH}-qbittorrent-nox (${QBITTORRENT_NOX_RELEASE}) does not match the published asset." >&2; \
+      echo "Update the QBITTORRENT_NOX_SHA256_* pins. The Update qBittorrent digests workflow opens a pull request when an asset is replaced under the same tag." >&2; \
+      exit 1; \
+    fi; \
     install -m 0755 /tmp/qbittorrent-nox /usr/bin/qbittorrent-nox; \
     rm -f /tmp/qbittorrent-nox /tmp/qbittorrent-nox.sha256; \
     /usr/bin/qbittorrent-nox --version
