@@ -344,6 +344,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
+          # The rolling release pushes its tag with this token.
+          persist-credentials: true
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4
         with:
@@ -501,7 +503,21 @@ jobs:
             elif [[ "$MODE" == versioned ]]; then
               gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest --verify-tag
             else
-              gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest --target "$GITHUB_SHA"
+              # Create the tag over git, then the release on the existing tag.
+              # POST /releases with --target needs workflows:write whenever the
+              # target's .github/workflows differs from the default branch tip
+              # (e.g. main moved mid-run), and GITHUB_TOKEN cannot hold that
+              # permission. See cli/cli#9514.
+              remote_sha=$(git ls-remote origin "refs/tags/${release_tag}" "refs/tags/${release_tag}^{}" \
+                | awk -v t="refs/tags/${release_tag}" '{sha[$2]=$1} END {print ((t "^{}") in sha) ? sha[t "^{}"] : sha[t]}')
+              if [[ -z "$remote_sha" ]]; then
+                git tag "$release_tag" "$GITHUB_SHA"
+                git push origin "refs/tags/${release_tag}"
+              elif [[ "$remote_sha" != "$GITHUB_SHA" ]]; then
+                echo "Tag ${release_tag} points at ${remote_sha}, expected ${GITHUB_SHA}" >&2
+                exit 1
+              fi
+              gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest --verify-tag
             fi
           }
 
