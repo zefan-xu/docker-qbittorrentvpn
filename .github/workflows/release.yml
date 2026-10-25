@@ -497,6 +497,15 @@ jobs:
               "dist/image-digests-${asset_suffix}.txt"
             )
 
+            # The release tag must point at the commit this run built, whether
+            # the release is new or already exists, in both modes.
+            remote_sha=$(git ls-remote origin "refs/tags/${release_tag}" "refs/tags/${release_tag}^{}" \
+              | awk -v t="refs/tags/${release_tag}" '{sha[$2]=$1} END {print ((t "^{}") in sha) ? sha[t "^{}"] : sha[t]}')
+            if [[ -n "$remote_sha" && "$remote_sha" != "$GITHUB_SHA" ]]; then
+              echo "Tag ${release_tag} points at ${remote_sha}, expected ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+
             if gh release view "$release_tag" >/dev/null 2>&1; then
               gh release edit "$release_tag" --title "$release_tag" --notes-file "$notes_file" --latest
               gh release upload "$release_tag" "${assets[@]}" --clobber
@@ -508,14 +517,11 @@ jobs:
               # target's .github/workflows differs from the default branch tip
               # (e.g. main moved mid-run), and GITHUB_TOKEN cannot hold that
               # permission. See cli/cli#9514.
-              remote_sha=$(git ls-remote origin "refs/tags/${release_tag}" "refs/tags/${release_tag}^{}" \
-                | awk -v t="refs/tags/${release_tag}" '{sha[$2]=$1} END {print ((t "^{}") in sha) ? sha[t "^{}"] : sha[t]}')
+              # This push does not start a versioned run (on.push.tags: v*) only
+              # because it uses GITHUB_TOKEN. A PAT or App token here would.
               if [[ -z "$remote_sha" ]]; then
                 git tag "$release_tag" "$GITHUB_SHA"
                 git push origin "refs/tags/${release_tag}"
-              elif [[ "$remote_sha" != "$GITHUB_SHA" ]]; then
-                echo "Tag ${release_tag} points at ${remote_sha}, expected ${GITHUB_SHA}" >&2
-                exit 1
               fi
               gh release create "$release_tag" "${assets[@]}" --title "$release_tag" --notes-file "$notes_file" --latest --verify-tag
             fi
