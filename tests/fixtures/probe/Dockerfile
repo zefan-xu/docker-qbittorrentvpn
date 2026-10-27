@@ -1,4 +1,4 @@
-FROM python:3.15-alpine@sha256:d44b1254cb92329418d164b22b20d86bbd3869d48e80e09e476531a409a728bb
+FROM python:3.15-alpine@sha256:1b0796bb3b4390ceb717d9231fa2c4ee584948473724ad7ae252aa9bc2125c7e
 
 WORKDIR /app
 COPY probe.py /app/probe.py
