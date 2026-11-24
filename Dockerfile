@@ -10,11 +10,11 @@ ARG S6_OVERLAY_VERSION=3.2.3.2
 # a pull request when the published digest changes. Release preflight checks
 # these pins before the image build, and sha256sum still rejects a stale pin.
 # renovate: datasource=github-release-attachments depName=userdocs/qbittorrent-nox-static/x86_64-qbittorrent-nox packageName=userdocs/qbittorrent-nox-static
-ARG QBITTORRENT_NOX_RELEASE=release-5.3.0_v2.1.2
-ARG QBITTORRENT_NOX_SHA256_AMD64=563e695a2b830e62e627e1ae403bcfcc494e444d5cabb5ecc1e09907353d8ed5
+ARG QBITTORRENT_NOX_RELEASE=release-5.3.1_v2.1.3
+ARG QBITTORRENT_NOX_SHA256_AMD64=318037b4f4f038fa13d6141fa08e90cb7b5542e994490e8884e09dcf1393acac
 # renovate: datasource=github-release-attachments depName=userdocs/qbittorrent-nox-static/aarch64-qbittorrent-nox packageName=userdocs/qbittorrent-nox-static
-ARG QBITTORRENT_NOX_RELEASE_ARM64=release-5.3.0_v2.1.2
-ARG QBITTORRENT_NOX_SHA256_ARM64=ac1e57089795270489491320c5fff0ceaed8e8910cf3abb6be597879408eb033
+ARG QBITTORRENT_NOX_RELEASE_ARM64=release-5.3.1_v2.1.3
+ARG QBITTORRENT_NOX_SHA256_ARM64=925bff75e0e8469410a477e7fc7f5efccd758c600a3bf5718de57fda67bd9667
 # resolute-updates includes the security pocket, so these pins can move forward.
 # renovate: datasource=deb depName=openvpn suite=resolute-updates components=main binaryArch=amd64
 ARG OPENVPN_VERSION=2.7.0-1ubuntu1.4
